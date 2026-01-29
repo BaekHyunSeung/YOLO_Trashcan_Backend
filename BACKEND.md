@@ -461,6 +461,58 @@ Invoke-RestMethod "http://127.0.0.1:8000/dashboard/stats?period=week"
 Invoke-RestMethod "http://127.0.0.1:8000/dashboard/stats?start_date=2026-01-20&end_date=2026-01-26"
 ```
 
+### 6.4.1 일별 통계 삭제 (기간별)
+`DELETE /daily-stats?start_date=YYYY-MM-DD&end_date=YYYY-MM-DD`
+
+응답 예시:
+```json
+{ "deleted": 12, "start_date": "2026-01-01", "end_date": "2026-01-07" }
+```
+
+PowerShell:
+```powershell
+Invoke-RestMethod -Method Delete "http://127.0.0.1:8000/daily-stats?start_date=2026-01-01&end_date=2026-01-07"
+```
+
+### 6.4.1.A 일별 통계 재생성 (기간별)
+`POST /daily-stats/rebuild?start_date=YYYY-MM-DD&end_date=YYYY-MM-DD`
+
+응답 예시:
+```json
+{ "rebuilt": true, "start_date": "2026-01-01", "end_date": "2026-01-07" }
+```
+
+PowerShell:
+```powershell
+Invoke-RestMethod -Method Post "http://127.0.0.1:8000/daily-stats/rebuild?start_date=2026-01-01&end_date=2026-01-07"
+```
+
+### 6.4.2 탐지 데이터 삭제 (기간별)
+`DELETE /detections?start_date=YYYY-MM-DD&end_date=YYYY-MM-DD`
+
+응답 예시:
+```json
+{ "deleted_detections": 3, "deleted_details": 12, "deleted_daily_stats": 7, "start_date": "2026-01-01", "end_date": "2026-01-07" }
+```
+
+PowerShell:
+```powershell
+Invoke-RestMethod -Method Delete "http://127.0.0.1:8000/detections?start_date=2026-01-01&end_date=2026-01-07"
+```
+
+### 6.4.3 최근 N일 탐지 데이터 삭제
+`DELETE /detections/recent?days=N`
+
+응답 예시:
+```json
+{ "deleted_detections": 3, "deleted_details": 12, "deleted_daily_stats": 1, "start_date": "2026-01-29", "end_date": "2026-01-29" }
+```
+
+PowerShell:
+```powershell
+Invoke-RestMethod -Method Delete "http://127.0.0.1:8000/detections/recent?days=7"
+```
+
 ### 6.5 수거 필요 쓰레기통 조회 (탐지 횟수 기반)
 `GET /trashcans/collection-needed`
 

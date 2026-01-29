@@ -9,9 +9,9 @@ import asyncio
 from datetime import date, datetime, timedelta
 from typing import Dict, List, Optional
 
-from fastapi import Depends, FastAPI, Query
+from fastapi import Depends, FastAPI, HTTPException, Query
 from pydantic import BaseModel, Field, model_validator
-from sqlalchemy import func
+from sqlalchemy import func, text
 from sqlalchemy.orm import Session
 
 from database import Base, SessionLocal, engine
@@ -139,10 +139,37 @@ def get_or_create_waste_type(db: Session, class_id: int, class_name: str) -> Was
     waste_type = db.query(WasteType).filter(WasteType.waste_type_id == class_id).one_or_none()
     if waste_type:
         return waste_type
+    waste_type = db.query(WasteType).filter(WasteType.type_name == class_name).one_or_none()
+    if waste_type:
+        return waste_type
     waste_type = WasteType(waste_type_id=class_id, type_name=class_name)
     db.add(waste_type)
     db.flush()
     return waste_type
+
+
+def ensure_trashcan_schema() -> None:
+    """DB 스키마에 필요한 컬럼이 없으면 추가."""
+
+    with engine.begin() as conn:
+        result = conn.execute(
+            text(
+                """
+                SELECT COUNT(*) AS cnt
+                FROM information_schema.columns
+                WHERE table_schema = DATABASE()
+                  AND table_name = 'TrashCan'
+                  AND column_name = 'is_deleted'
+                """
+            )
+        )
+        exists = (result.scalar() or 0) > 0
+        if not exists:
+            conn.execute(
+                text(
+                    "ALTER TABLE `TrashCan` ADD COLUMN `is_deleted` BOOLEAN NOT NULL DEFAULT 0"
+                )
+            )
 
 
 # =========================
@@ -192,6 +219,13 @@ def refresh_daily_stats(target_date: date) -> None:
         db.commit()
 
 
+def refresh_daily_stats_range(start_date: date, end_date: date) -> None:
+    current = start_date
+    while current <= end_date:
+        refresh_daily_stats(current)
+        current += timedelta(days=1)
+
+
 async def stats_scheduler() -> None:
     while True:
         target_date = (datetime.utcnow() - timedelta(days=STATS_LAG_DAYS)).date()
@@ -208,6 +242,7 @@ async def on_startup() -> None:
     """앱 시작 시 테이블 자동 생성 및 스케줄러 시작."""
 
     Base.metadata.create_all(bind=engine)
+    ensure_trashcan_schema()
     app.state.stats_task = asyncio.create_task(stats_scheduler())
 
 
@@ -611,6 +646,7 @@ def detection_details(
 ) -> dict:
     """쓰레기 종류별 상세(사진/일시) 조회."""
 
+    key = (waste_type or "").strip().lower()
     type_map = {
         "전체": None,
         "all": None,
@@ -623,7 +659,7 @@ def detection_details(
         "can": "Can",
         "styrofoam": "Styrofoam",
     }
-    normalized = type_map.get(waste_type, waste_type)
+    normalized = type_map.get(key, waste_type)
 
     query = (
         db.query(
@@ -639,7 +675,7 @@ def detection_details(
         .order_by(Detection.detected_at.desc())
     )
     if normalized:
-        query = query.filter(WasteType.type_name == normalized)
+        query = query.filter(func.lower(WasteType.type_name) == str(normalized).lower())
 
     rows = query.offset(offset).limit(limit).all()
     items = []
@@ -844,6 +880,134 @@ def dashboard_stats(
         "total_objects": total_objects,
         "by_type": {name: count for name, count in type_rows},
         "by_city": {city: count for city, count in city_rows},
+    }
+
+
+@app.delete("/daily-stats")
+def delete_daily_stats(
+    start_date: date = Query(...),
+    end_date: date = Query(...),
+    db: Session = Depends(get_db),
+) -> dict:
+    """일별 통계 삭제(기간별)."""
+
+    if start_date > end_date:
+        raise HTTPException(status_code=400, detail="start_date must be <= end_date")
+
+    deleted = (
+        db.query(DailyStats)
+        .filter(DailyStats.stats_date.between(start_date, end_date))
+        .delete(synchronize_session=False)
+    )
+    db.commit()
+    return {"deleted": deleted, "start_date": start_date, "end_date": end_date}
+
+
+@app.post("/daily-stats/rebuild")
+def rebuild_daily_stats(
+    start_date: date = Query(...),
+    end_date: date = Query(...),
+) -> dict:
+    """기간별 일별 통계 재생성."""
+
+    if start_date > end_date:
+        raise HTTPException(status_code=400, detail="start_date must be <= end_date")
+
+    refresh_daily_stats_range(start_date, end_date)
+    return {"rebuilt": True, "start_date": start_date, "end_date": end_date}
+
+
+@app.delete("/detections")
+def delete_detections(
+    start_date: date = Query(...),
+    end_date: date = Query(...),
+    db: Session = Depends(get_db),
+) -> dict:
+    """탐지 데이터 삭제(기간별, Detection/DetectionDetail)."""
+
+    if start_date > end_date:
+        raise HTTPException(status_code=400, detail="start_date must be <= end_date")
+
+    start_dt = datetime.combine(start_date, datetime.min.time())
+    end_dt = datetime.combine(end_date, datetime.max.time())
+
+    detection_ids = (
+        db.query(Detection.detection_id)
+        .filter(Detection.detected_at.between(start_dt, end_dt))
+        .all()
+    )
+    detection_ids = [row[0] for row in detection_ids]
+    if not detection_ids:
+        return {"deleted_detections": 0, "deleted_details": 0, "start_date": start_date, "end_date": end_date}
+
+    deleted_details = (
+        db.query(DetectionDetail)
+        .filter(DetectionDetail.detection_id.in_(detection_ids))
+        .delete(synchronize_session=False)
+    )
+    deleted_detections = (
+        db.query(Detection)
+        .filter(Detection.detection_id.in_(detection_ids))
+        .delete(synchronize_session=False)
+    )
+    deleted_daily_stats = (
+        db.query(DailyStats)
+        .filter(DailyStats.stats_date.between(start_date, end_date))
+        .delete(synchronize_session=False)
+    )
+    db.commit()
+    return {
+        "deleted_detections": deleted_detections,
+        "deleted_details": deleted_details,
+        "deleted_daily_stats": deleted_daily_stats,
+        "start_date": start_date,
+        "end_date": end_date,
+    }
+
+
+@app.delete("/detections/recent")
+def delete_recent_detections(
+    days: int = Query(..., ge=1, le=3650),
+    db: Session = Depends(get_db),
+) -> dict:
+    """최근 N일 탐지 데이터 삭제(오늘 포함)."""
+
+    end_date = datetime.utcnow().date()
+    start_date = end_date - timedelta(days=days - 1)
+    start_dt = datetime.combine(start_date, datetime.min.time())
+    end_dt = datetime.combine(end_date, datetime.max.time())
+
+    detection_ids = (
+        db.query(Detection.detection_id)
+        .filter(Detection.detected_at.between(start_dt, end_dt))
+        .all()
+    )
+    detection_ids = [row[0] for row in detection_ids]
+    if not detection_ids:
+        return {"deleted_detections": 0, "deleted_details": 0, "start_date": start_date, "end_date": end_date}
+
+    deleted_details = (
+        db.query(DetectionDetail)
+        .filter(DetectionDetail.detection_id.in_(detection_ids))
+        .delete(synchronize_session=False)
+    )
+    deleted_detections = (
+        db.query(Detection)
+        .filter(Detection.detection_id.in_(detection_ids))
+        .delete(synchronize_session=False)
+    )
+    deleted_daily_stats = (
+        db.query(DailyStats)
+        .filter(DailyStats.stats_date.between(start_date, end_date))
+        .delete(synchronize_session=False)
+    )
+    db.commit()
+    return {
+        "deleted_detections": deleted_detections,
+        "deleted_details": deleted_details,
+        "deleted_daily_stats": deleted_daily_stats,
+        "start_date": start_date,
+        "end_date": end_date,
     }
 
 
