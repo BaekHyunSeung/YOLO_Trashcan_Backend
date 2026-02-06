@@ -2,7 +2,7 @@ from fastapi import FastAPI
 import uvicorn
 from sqlalchemy import text
 from sqlmodel import SQLModel
-
+from fastapi.middleware.cors import CORSMiddleware
 import db.entity
 from db.db import engine, SessionDep
 from routers.dashboard_router import dashboard
@@ -12,6 +12,22 @@ from routers.trashcan_map_router import map
 from routers.detections_router import detections
 
 app = FastAPI()
+
+# 테이블 자동 생성
+@app.on_event("startup")
+async def on_startup():
+    async with engine.begin() as conn:
+        await conn.run_sync(SQLModel.metadata.create_all)
+
+#CORS 설정
+app.add_middleware(
+    CORSMiddleware,
+    allow_origins=["http://localhost:3000"], #프론트 주소로 변경해야함
+    allow_credentials=True,
+    allow_methods=["*"],
+    allow_headers=["*"],
+)
+
 
 app.include_router(dashboard)
 app.include_router(management)
