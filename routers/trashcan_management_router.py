@@ -13,21 +13,25 @@ async def get_trashcans(db: SessionDep):
     return results
 
 @management.get("/trashcans/{trashcan_id}/health")
-async def get_trashcan_health(trashcan_id):
-    result = await service.get_trashcan_health(trashcan_id)
+async def get_trashcan_health(trashcan_id: int, db: SessionDep):
+    result = await service.get_trashcan_health(trashcan_id, db)
     return result
 
 @management.put("/trashcans")
-async def modify_trashcan(trashcan: TrashcanModify):
-    result = await service.modify_trashcan(trashcan)
+async def modify_trashcan(trashcan: TrashcanModify, db: SessionDep):
+    result = await service.modify_trashcan(trashcan, db)
     return result
 
 @management.delete("/trashcans/{trashcan_id}")
-async def delete_trashcan(trashcan_id: int):
-    result = await service.delete_trashcan(trashcan_id)
+async def delete_trashcan(trashcan_id: int, db: SessionDep):
+    result = await service.delete_trashcan(trashcan_id, db)
+    return result
+@management.put("/trashcans/{trashcan_id}/recover")
+async def recover_trashcan(trashcan_id: int, db: SessionDep):
+    result = await service.recover_trashcan(trashcan_id, db)
     return result
 
 @management.post("/trashcans")
-async def create_trashcan(trashcan: TrashcanCreate):
-    result = await service.create_trashcan(trashcan)    
+async def create_trashcan(trashcan: TrashcanCreate, db: SessionDep):
+    result = await service.create_trashcan(trashcan, db)    
     return result

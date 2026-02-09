@@ -7,12 +7,17 @@ class TrashcanModify(BaseModel):
     trashcan_name: str
     trashcan_city: str
     address_detail: str
+    trashcan_latitude: float
+    trashcan_longitude: float
 
 class TrashcanCreate(BaseModel):
     trashcan_name: str
     trashcan_capacity: int
     trashcan_city: str
     address_detail: str
+    trashcan_latitude: float
+    trashcan_longitude: float
+    server_url: str | None = None
 
 class Trashcan(BaseModel):
     trashcan_id: int

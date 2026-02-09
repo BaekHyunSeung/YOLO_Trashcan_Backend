@@ -1,15 +1,18 @@
-from datetime import datetime, date
+from datetime import datetime, date, timedelta
 from sqlmodel import select
 from db.db import SessionDep
 from db.entity import Detection, DetectionDetail, DailyStats, Trashcan, WasteType
 from models.request import DetectionCreate, DetectionObject, BBox
-from service.detection_mapping import camera_to_trashcan_id, class_id_to_type_name
+from fastapi import HTTPException
+from service.detection_mapping import class_id_to_type_name
 
 class DetectionService:
     async def detection_mapping(self, data, file, db: SessionDep):
-        #camera_id -> trashcan_id 변환
+        # camera_id -> trashcan_name 조회 -> trashcan_id 조회
         camera_id = data.get("camera_id")
-        trashcan_id = camera_to_trashcan_id(camera_id)
+        trashcan_id = await self.get_trashcan_id(camera_id, db)
+        if trashcan_id is None:
+            raise HTTPException(status_code=400, detail="알 수 없는 trashcan_name")
 
         objects = []
         for d in data.get("detections", []):
@@ -50,6 +53,12 @@ class DetectionService:
 
     async def get_waste_type_id(self, type_name: str, db: SessionDep) -> int | None:
         stmt = select(WasteType.waste_type_id).where(WasteType.type_name == type_name)
+        return (await db.execute(stmt)).scalar_one_or_none()
+
+    async def get_trashcan_id(self, trashcan_name: str | None, db: SessionDep) -> int | None:
+        if not trashcan_name:
+            return None
+        stmt = select(Trashcan.trashcan_id).where(Trashcan.trashcan_name == trashcan_name)
         return (await db.execute(stmt)).scalar_one_or_none()
     
     async def save_detection(self, payload: DetectionCreate, db: SessionDep):

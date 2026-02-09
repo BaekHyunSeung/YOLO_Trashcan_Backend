@@ -1,4 +1,4 @@
-from fastapi import FastAPI, APIRouter, Depends, HTTPException
+from fastapi import APIRouter
 from db.db import SessionDep
 from service.trashcan_list_service import TrashcanList
 
@@ -13,8 +13,8 @@ async def list_trashcans(db: SessionDep):
 
 #자세히보기
 @trashcans_list.get("/trashcans/{trashcan_id}")
-async def get_trashcan(trashcan_id):
-    result = await service.get_trashcans_detail(trashcan_id)
+async def get_trashcan(trashcan_id: int, db: SessionDep):
+    result = await service.get_trashcans_detail(trashcan_id, db)
     return result
 
 #정렬
