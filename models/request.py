@@ -30,14 +30,6 @@ class Trashcan(BaseModel):
     is_online: bool
     last_connected_at: datetime
 
-class TrashcanList(BaseModel):
-    trashcan_id: int
-    trashcan_name: str
-    address_detail: str
-    trashcan_capacity: int
-    current_volume: int
-    is_online: bool
-
 class BBox(BaseModel):
     x1: float
     y1: float

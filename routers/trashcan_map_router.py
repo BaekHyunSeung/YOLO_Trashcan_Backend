@@ -1,4 +1,4 @@
-from fastapi import FastAPI, Depends, APIRouter
+from fastapi import APIRouter
 from db.db import SessionDep
 from service.trashcan_map_service import TrashcanMapService
 

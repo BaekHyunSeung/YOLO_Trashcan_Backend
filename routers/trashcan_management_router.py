@@ -1,4 +1,4 @@
-from fastapi import Depends, FastAPI, HTTPException, APIRouter
+from fastapi import APIRouter
 from models.request import TrashcanModify
 from models.request import TrashcanCreate
 from db.db import SessionDep

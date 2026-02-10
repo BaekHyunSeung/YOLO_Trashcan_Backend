@@ -101,7 +101,7 @@ class DetectionService:
             )
             stats = (await db.execute(daily)).scalar_one_or_none()
             if stats:
-                stats.detection_count += 1
+                stats.detection_count = (stats.detection_count or 0) + 1
             else:
                 db.add(DailyStats(
                     stats_date=date.today(),

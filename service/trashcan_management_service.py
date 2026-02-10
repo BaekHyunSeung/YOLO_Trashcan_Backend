@@ -1,11 +1,11 @@
 import asyncio
-import urllib.request
 from sqlmodel import select
 from sqlalchemy import func
 from db.entity import Trashcan, Detection
 from db.db import SessionDep
 from models.request import TrashcanModify
 from models.request import TrashcanCreate
+from service.connection_utils import ping_server
 
 class TrashcanManagementService:
     def __init__(self):
@@ -40,17 +40,15 @@ class TrashcanManagementService:
         if not server_url:
             return {"trashcan_id": trashcan_id, "status": "error", "message": "Server URL not found"}
 
-        def _ping(url: str) -> int:
-            with urbllib.request.urlopen(url, timeout=3) as resp:
-                return resp.getcode()
-        
         try:
-            status = await asyncio.to_thread(_ping, server_url)
+            status, _, reachable, _ = await asyncio.to_thread(ping_server, server_url)
         except Exception:
             return {"trashcan_id": trashcan_id, "status": "error", "message": "Failed to connect to server"}
         
-        if status == 200:
+        if reachable and status == 200:
             return {"trashcan_id": trashcan_id, "status": "ok", "message": "Server is healthy"}
+        if status is None:
+            return {"trashcan_id": trashcan_id, "status": "error", "message": "Failed to connect to server"}
         return {"trashcan_id": trashcan_id, "status": "error", "message": f"status_{status}"}
         
 
