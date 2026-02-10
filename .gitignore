@@ -4,3 +4,4 @@ __pycache__/
 secrets.json
 "@ | Out-File -Encoding utf8 .gitignore
 .env
+.idea/
