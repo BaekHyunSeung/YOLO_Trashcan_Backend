@@ -12,7 +12,7 @@ class DetectionService:
         camera_id = data.get("camera_id")
         trashcan_id = await self.get_trashcan_id(camera_id, db)
         if trashcan_id is None:
-            raise HTTPException(status_code=400, detail="알 수 없는 trashcan_name")
+            raise HTTPException(status_code=400, detail=f"알 수 없는 trashcan_name")
 
         objects = []
         for d in data.get("detections", []):
