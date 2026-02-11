@@ -58,6 +58,16 @@ class DetectionService:
     async def get_trashcan_id(self, trashcan_name: str | None, db: SessionDep) -> int | None:
         if not trashcan_name:
             return None
+        # 숫자 값이면 trashcan_id로 직접 조회
+        try:
+            trashcan_id = int(trashcan_name)
+            stmt = select(Trashcan.trashcan_id).where(Trashcan.trashcan_id == trashcan_id)
+            result = (await db.execute(stmt)).scalar_one_or_none()
+            if result is not None:
+                return result
+        except (TypeError, ValueError):
+            pass
+
         stmt = select(Trashcan.trashcan_id).where(Trashcan.trashcan_name == trashcan_name)
         return (await db.execute(stmt)).scalar_one_or_none()
     
