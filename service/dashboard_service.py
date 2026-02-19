@@ -1,16 +1,14 @@
-import json
-import os
-from datetime import date, timedelta
+from datetime import date, timedelta, datetime
 
 from sqlmodel import select
-from sqlalchemy import case, func
-from db.entity import DetectionDetail, WasteType, Trashcan, DailyStats
+from sqlalchemy import case, func, desc, exists
+from db.entity import DetectionDetail, WasteType, Trashcan, DailyStats, TrashcanErrorLog, Detection
+from service.trashcan_status_utils import mark_offline_if_stale
 from db.db import SessionDep
 
 class DashboardService:
     def __init__(self):
-        self._log_dir = os.path.join(os.path.dirname(__file__), "..", "logs")
-        os.makedirs(self._log_dir, exist_ok=True)
+        pass
 
     async def _ensure_trashcan_exists(self, trashcan_id: int, db: SessionDep) -> bool:
         stmt = (
@@ -21,8 +19,11 @@ class DashboardService:
         return (await db.execute(stmt)).first() is not None
 
     async def get_total_detection(self, db: SessionDep):
-        total_stmt = select(func.count(DetectionDetail.detail_id))
-        total_objects = (await db.execute(total_stmt)).scalar() or 0
+        total_objects_stmt = select(func.count(DetectionDetail.detail_id))
+        total_objects = (await db.execute(total_objects_stmt)).scalar() or 0
+
+        total_events_stmt = select(func.count(Detection.detection_id))
+        total_events = (await db.execute(total_events_stmt)).scalar() or 0
 
         type_stmt = (
             select(
@@ -47,6 +48,7 @@ class DashboardService:
 
         return {
             "total_objects": int(total_objects),
+            "total_events": int(total_events),
             "items_by_type": items_by_type,
         }
 
@@ -149,6 +151,17 @@ class DashboardService:
         }
 
     async def get_unconnected_trashcans_list(self, db: SessionDep):
+        await mark_offline_if_stale(db, minutes=5)
+        cutoff = datetime.now() - timedelta(minutes=1)
+        error_exists = exists(
+            select(TrashcanErrorLog.id).where(
+                TrashcanErrorLog.trashcan_id == Trashcan.trashcan_id,
+                (
+                    (TrashcanErrorLog.last_occurred_at >= cutoff)
+                    | (TrashcanErrorLog.created_at >= cutoff)
+                ),
+            )
+        )
         stmt = (
             select(
                 Trashcan.trashcan_id,
@@ -157,7 +170,7 @@ class DashboardService:
                 Trashcan.last_connected_at,
             )
             .where(Trashcan.is_deleted == False)
-            .where(Trashcan.is_online == False)
+            .where((Trashcan.is_online == False) | error_exists)
             .order_by(Trashcan.last_connected_at.desc(), Trashcan.trashcan_id.asc())
         )
         rows = (await db.execute(stmt)).all()
@@ -171,50 +184,93 @@ class DashboardService:
             for row in rows
         ]
 
-    async def save_unconnected_trashcan_log(
+    async def save_trashcan_error_log(
         self,
-        trashcan_id: int,
+        trashcan_id: int | None,
+        camera_id: int | None,
         status_code: int,
         message: str | None,
         occurred_at: str | None,
         db: SessionDep,
-    ):
-        if not await self._ensure_trashcan_exists(trashcan_id, db):
-            return None
+    ) -> None:
+        if trashcan_id is not None:
+            if not await self._ensure_trashcan_exists(trashcan_id, db):
+                return
+        occurred_value = None
+        if occurred_at:
+            try:
+                normalized = occurred_at.replace("Z", "+00:00")
+                occurred_value = datetime.fromisoformat(normalized)
+            except ValueError:
+                occurred_value = None
+        effective_time = occurred_value or datetime.now()
+        if effective_time.tzinfo is not None:
+            effective_time = effective_time.astimezone(tz=None).replace(tzinfo=None)
+        base_stmt = (
+            select(TrashcanErrorLog)
+            .where(TrashcanErrorLog.status_code == status_code)
+            .where(TrashcanErrorLog.message == message)
+        )
+        if trashcan_id is not None:
+            base_stmt = base_stmt.where(TrashcanErrorLog.trashcan_id == trashcan_id)
+        else:
+            base_stmt = base_stmt.where(TrashcanErrorLog.trashcan_id.is_(None))
+            base_stmt = base_stmt.where(TrashcanErrorLog.camera_id == camera_id)
+        last_log = (
+            await db.execute(
+                base_stmt.order_by(
+                    desc(TrashcanErrorLog.created_at),
+                    desc(TrashcanErrorLog.id),
+                ).limit(1)
+            )
+        ).scalar_one_or_none()
+        if last_log:
+            last_time = last_log.last_occurred_at or last_log.created_at
+            if last_time and last_time.tzinfo is not None:
+                last_time = last_time.astimezone(tz=None).replace(tzinfo=None)
+            if last_time and effective_time - last_time <= timedelta(minutes=1):
+                last_log.repeat_count = (last_log.repeat_count or 1) + 1
+                last_log.last_occurred_at = effective_time
+                await db.commit()
+                return
+        log = TrashcanErrorLog(
+            trashcan_id=trashcan_id,
+            camera_id=camera_id,
+            status_code=status_code,
+            message=message,
+            occurred_at=occurred_value,
+            last_occurred_at=effective_time,
+            repeat_count=1,
+        )
+        db.add(log)
+        await db.commit()
+        return
 
-        log_path = os.path.join(self._log_dir, f"trashcan_{trashcan_id}.jsonl")
-        payload = {
-            "trashcan_id": trashcan_id,
-            "status_code": status_code,
-            "message": message,
-            "occurred_at": occurred_at,
-        }
-        with open(log_path, "a", encoding="utf-8") as file:
-            file.write(json.dumps(payload, ensure_ascii=False) + "\n")
-        return {"saved": True}
-
-    async def get_unconnected_trashcan_log(
+    async def get_trashcan_error_logs(
         self, trashcan_id: int, limit: int, db: SessionDep
     ):
         if not await self._ensure_trashcan_exists(trashcan_id, db):
             return None
 
-        log_path = os.path.join(self._log_dir, f"trashcan_{trashcan_id}.jsonl")
-        if not os.path.exists(log_path):
-            return {"trashcan_id": trashcan_id, "logs": []}
-
-        logs: list[dict] = []
-        with open(log_path, "r", encoding="utf-8") as file:
-            for line in file:
-                line = line.strip()
-                if not line:
-                    continue
-                try:
-                    logs.append(json.loads(line))
-                except json.JSONDecodeError:
-                    continue
-
+        stmt = (
+            select(TrashcanErrorLog)
+            .where(TrashcanErrorLog.trashcan_id == trashcan_id)
+            .order_by(desc(TrashcanErrorLog.created_at), desc(TrashcanErrorLog.id))
+        )
         if limit > 0:
-            logs = logs[-limit:]
-
+            stmt = stmt.limit(limit)
+        rows = (await db.execute(stmt)).scalars().all()
+        logs = [
+            {
+                "trashcan_id": row.trashcan_id,
+                "camera_id": row.camera_id,
+                "status_code": row.status_code,
+                "message": row.message,
+                "occurred_at": row.occurred_at,
+                "last_occurred_at": row.last_occurred_at,
+                "repeat_count": row.repeat_count,
+                "created_at": row.created_at,
+            }
+            for row in rows
+        ]
         return {"trashcan_id": trashcan_id, "logs": logs}

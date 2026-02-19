@@ -1,4 +1,5 @@
 import asyncio
+from datetime import datetime
 from sqlmodel import select
 from sqlalchemy import func
 from db.entity import Trashcan, Detection
@@ -35,21 +36,24 @@ class TrashcanManagementService:
         ]
 
     async def get_trashcan_health(self, trashcan_id: int, db: SessionDep):
-        stmt = select(Trashcan.server_url).where(Trashcan.trashcan_id == trashcan_id)
-        server_url = (await db.execute(stmt)).scalar_one_or_none()
-        if not server_url:
+        stmt = select(Trashcan).where(Trashcan.trashcan_id == trashcan_id)
+        trashcan = (await db.execute(stmt)).scalar_one_or_none()
+        if not trashcan or not trashcan.server_url:
             return {"trashcan_id": trashcan_id, "status": "error", "message": "Server URL not found"}
 
         try:
-            status, _, reachable, _ = await asyncio.to_thread(ping_server, server_url)
+            reachable = await asyncio.to_thread(ping_server, trashcan.server_url)
         except Exception:
             return {"trashcan_id": trashcan_id, "status": "error", "message": "Failed to connect to server"}
         
-        if reachable and status == 200:
+        if reachable:
+            trashcan.is_online = True
+            trashcan.last_connected_at = datetime.now()
+            await db.commit()
             return {"trashcan_id": trashcan_id, "status": "ok", "message": "Server is healthy"}
-        if status is None:
-            return {"trashcan_id": trashcan_id, "status": "error", "message": "Failed to connect to server"}
-        return {"trashcan_id": trashcan_id, "status": "error", "message": f"status_{status}"}
+        trashcan.is_online = False
+        await db.commit()
+        return {"trashcan_id": trashcan_id, "status": "error", "message": "Failed to connect to server"}
         
 
     async def modify_trashcan(self, trashcan: TrashcanModify, db: SessionDep):
@@ -89,6 +93,17 @@ class TrashcanManagementService:
         return {"recovered": True, "trashcan_id": target.trashcan_id, "message": "Trashcan recovered successfully"}
 
     async def create_trashcan(self, trashcan: TrashcanCreate, db: SessionDep):
+        try:
+            reachable = await asyncio.to_thread(ping_server, trashcan.server_url)
+        except Exception:
+            return {"created": False, "message": "Failed to connect to server"}
+
+        if not reachable:
+            return {
+                "created": False,
+                "message": "Failed to connect to server",
+            }
+
         new_trashcan = Trashcan(
             trashcan_name=trashcan.trashcan_name,
             trashcan_capacity=trashcan.trashcan_capacity,
@@ -101,6 +116,33 @@ class TrashcanManagementService:
         db.add(new_trashcan)
         await db.commit()
         await db.refresh(new_trashcan)
-        return {"created": True, "trashcan_id": new_trashcan.trashcan_id, "message": "Trashcan created successfully"}
+        return {
+            "created": True,
+            "trashcan_id": new_trashcan.trashcan_id,
+            "message": "Trashcan created successfully",
+        }
+
+    async def get_deleted_trashcans(self, db: SessionDep):
+        stmt = (
+            select(
+                Trashcan.trashcan_id,
+                Trashcan.trashcan_name,
+                Trashcan.address_detail,
+                func.coalesce(func.sum(Detection.object_count), 0).label("total_collected"),
+            )
+            .join(Detection, Detection.trashcan_id == Trashcan.trashcan_id, isouter=True)
+            .where(Trashcan.is_deleted == True) 
+            .group_by(Trashcan.trashcan_id, Trashcan.trashcan_name, Trashcan.address_detail)
+        )
+        rows = (await db.execute(stmt)).all()
+        return [
+            {
+                "trashcan_id": row.trashcan_id,
+                "trashcan_name": row.trashcan_name,
+                "address_detail": row.address_detail,
+                "total_collected": int(row.total_collected or 0),
+            }
+            for row in rows
+        ]
 
         

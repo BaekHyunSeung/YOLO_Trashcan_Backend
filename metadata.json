@@ -1,8 +1,8 @@
 {
-    "camera_id": "CAM_0",
-    "frame_id": "TEST_001",
-    "detections": [
-      {"class_id": 0, "bbox": [10, 20, 100, 120], "score": 0.9},
-      {"class_id": 2, "bbox": [50, 60, 150, 160], "score": 0.8}
-    ]
+  "camera_id": 1,
+  "frame_id": "TEST_001",
+  "detections": [
+    {"class_id": 0, "bbox": [10, 20, 100, 120], "score": 0.9},
+    {"class_id": 2, "bbox": [50, 60, 150, 160], "score": 0.8}
+  ]
 }

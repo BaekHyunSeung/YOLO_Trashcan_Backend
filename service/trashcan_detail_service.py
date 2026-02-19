@@ -1,6 +1,8 @@
 import asyncio
+from datetime import datetime
 
 from service.connection_utils import ping_server
+from service.trashcan_status_utils import mark_offline_if_stale
 
 from sqlmodel import select
 from sqlalchemy import func
@@ -13,6 +15,7 @@ class TrashcanDetail:
         pass
 
     async def get_trashcans_detail(self, trashcan_id: int, db: SessionDep):
+        await mark_offline_if_stale(db, minutes=5)
         trashcan_stmt = (
             select(Trashcan)
             .where(Trashcan.trashcan_id == trashcan_id)
@@ -96,9 +99,17 @@ class TrashcanDetail:
         if not server_url:
             reason = "server_url 없음"
         else:
-            status_code, response_body, reachable, reason = await asyncio.to_thread(
-                ping_server, server_url
-            )
+            reachable = await asyncio.to_thread(ping_server, server_url)
+            if not reachable:
+                reason = "Failed to connect to server"
+            else:
+                trashcan.is_online = True
+                trashcan.last_connected_at = datetime.now()
+                await db.commit()
+
+        if server_url and not reachable:
+            trashcan.is_online = False
+            await db.commit()
 
         return {
             "trashcan_id": trashcan.trashcan_id,

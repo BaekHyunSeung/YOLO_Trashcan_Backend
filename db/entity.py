@@ -3,7 +3,7 @@ from typing import Annotated
 
 from fastapi import Depends, FastAPI, HTTPException, Query
 from sqlmodel import Field, Session, SQLModel, create_engine, select
-from sqlalchemy import Boolean, Column, JSON, text, DateTime
+from sqlalchemy import Boolean, Column, text, DateTime
 
 class Trashcan(SQLModel, table=True):
     __tablename__ = "trashcan"
@@ -43,7 +43,10 @@ class DetectionDetail(SQLModel, table=True):
     detection_id: int = Field(foreign_key="detection.detection_id")
     waste_type_id: int = Field(foreign_key="wastetype.waste_type_id")
     confidence: float | None
-    bbox_info: dict | None = Field(default=None, sa_column=Column(JSON))
+    bbox_x1: float | None
+    bbox_y1: float | None
+    bbox_x2: float | None
+    bbox_y2: float | None
 
 class DailyStats(SQLModel, table=True):
     __tablename__ = "dailystats"
@@ -52,3 +55,18 @@ class DailyStats(SQLModel, table=True):
     trashcan_city: str | None
     waste_type_id: int = Field(foreign_key="wastetype.waste_type_id")
     detection_count: int | None
+
+class TrashcanErrorLog(SQLModel, table=True):
+    __tablename__ = "trashcan_error_log"
+    id: int | None = Field(default=None, primary_key=True)
+    trashcan_id: int = Field(foreign_key="trashcan.trashcan_id")
+    camera_id: int | None
+    status_code: int
+    message: str | None
+    occurred_at: datetime | None
+    last_occurred_at: datetime | None
+    repeat_count: int | None = Field(default=1)
+    created_at: datetime | None = Field(
+        default=datetime.now(),
+        sa_column=Column(DateTime, server_default=text("CURRENT_TIMESTAMP")),
+    )

@@ -6,7 +6,7 @@ import db.entity
 from db.db import engine
 from routers.dashboard_router import dashboard
 from routers.trashcan_list_router import trashcans_list
-from routers.trashcan_detail_router import trashcans_detail, trashcans_detail_alias
+from routers.trashcan_detail_router import trashcans_detail
 from routers.trashcan_management_router import management
 from routers.trashcan_map_router import map
 from routers.detections_router import detections
@@ -34,7 +34,6 @@ app.include_router(management)
 app.include_router(map)
 app.include_router(trashcans_list)
 app.include_router(trashcans_detail)
-app.include_router(trashcans_detail_alias)
 app.include_router(detections)
 
 if __name__== "__main__":

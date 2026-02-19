@@ -4,15 +4,35 @@ from db.db import SessionDep
 from db.entity import Detection, DetectionDetail, DailyStats, Trashcan, WasteType
 from models.request import DetectionCreate, DetectionObject, BBox
 from fastapi import HTTPException
-from service.detection_mapping import class_id_to_type_name
+
+def class_id_to_type_name(class_id: int) -> str | None:
+    mapping = {
+        0: "MetalCan",
+        1: "PetBottle",
+        2: "Plastic",
+        3: "Styrofoam",
+    }
+    return mapping.get(class_id)
 
 class DetectionService:
-    async def detection_mapping(self, data, file, db: SessionDep):
-        # camera_id -> trashcan_name 조회 -> trashcan_id 조회
-        camera_id = data.get("camera_id")
-        trashcan_id = await self.get_trashcan_id(camera_id, db)
+    async def detection_mapping(
+        self,
+        data,
+        file,
+        db: SessionDep,
+        trashcan_id: int | None = None,
+    ):
+        # camera_id -> trashcan_id 조회
         if trashcan_id is None:
-            raise HTTPException(status_code=400, detail=f"알 수 없는 trashcan_name")
+            camera_id = data.get("camera_id")
+            trashcan_id = await self.get_trashcan_id(camera_id, db)
+        if trashcan_id is None:
+            camera_id = data.get("camera_id")
+            raise HTTPException(
+                status_code=400,
+                detail=f"알 수 없는 trashcan_id / 받은 camera_id: {camera_id}",
+            )
+        await self.update_trashcan_online(trashcan_id, db)
 
         objects = []
         for d in data.get("detections", []):
@@ -49,27 +69,31 @@ class DetectionService:
             objects=objects,
         )
 
-        return await self.save_detection(payload, db)
+        await self.save_detection(payload, db)
+        return None
 
     async def get_waste_type_id(self, type_name: str, db: SessionDep) -> int | None:
         stmt = select(WasteType.waste_type_id).where(WasteType.type_name == type_name)
         return (await db.execute(stmt)).scalar_one_or_none()
 
-    async def get_trashcan_id(self, trashcan_name: str | None, db: SessionDep) -> int | None:
-        if not trashcan_name:
+    async def get_trashcan_id(self, trashcan_id_value: int | str | None, db: SessionDep) -> int | None:
+        if trashcan_id_value is None:
             return None
-        # 숫자 값이면 trashcan_id로 직접 조회
         try:
-            trashcan_id = int(trashcan_name)
-            stmt = select(Trashcan.trashcan_id).where(Trashcan.trashcan_id == trashcan_id)
-            result = (await db.execute(stmt)).scalar_one_or_none()
-            if result is not None:
-                return result
+            trashcan_id = int(trashcan_id_value)
         except (TypeError, ValueError):
-            pass
-
-        stmt = select(Trashcan.trashcan_id).where(Trashcan.trashcan_name == trashcan_name)
+            return None
+        stmt = select(Trashcan.trashcan_id).where(Trashcan.trashcan_id == trashcan_id)
         return (await db.execute(stmt)).scalar_one_or_none()
+
+    async def update_trashcan_online(self, trashcan_id: int, db: SessionDep) -> None:
+        stmt = select(Trashcan).where(Trashcan.trashcan_id == trashcan_id)
+        target = (await db.execute(stmt)).scalar_one_or_none()
+        if not target:
+            return
+        target.is_online = True
+        target.last_connected_at = datetime.now()
+        await db.commit()
     
     async def save_detection(self, payload: DetectionCreate, db: SessionDep):
         #detection 저장
@@ -90,10 +114,23 @@ class DetectionService:
                 detection_id=detection.detection_id,
                 waste_type_id=obj.waste_type_id,
                 confidence=obj.confidence,
-                bbox_info=obj.box.model_dump(),
+                bbox_x1=obj.box.x1,
+                bbox_y1=obj.box.y1,
+                bbox_x2=obj.box.x2,
+                bbox_y2=obj.box.y2,
             )
             db.add(detail)
         await db.commit()
+
+        #trashcan 수거량 업데이트
+        target_trashcan = (
+            await db.execute(
+                select(Trashcan).where(Trashcan.trashcan_id == payload.trashcan_id)
+            )
+        ).scalar_one_or_none()
+        if target_trashcan:
+            target_trashcan.current_volume = (target_trashcan.current_volume or 0) + payload.object_count
+            await db.commit()
 
         #trashcan_city 조회
         trashcan_city = (
@@ -120,9 +157,3 @@ class DetectionService:
                     detection_count=1,
                 ))
         await db.commit()
-
-        return {
-            "saved": True,
-            "detection_id": detection.detection_id,
-            "total_objects": payload.object_count
-        }    

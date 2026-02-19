@@ -35,3 +35,8 @@ async def recover_trashcan(trashcan_id: int, db: SessionDep):
 async def create_trashcan(trashcan: TrashcanCreate, db: SessionDep):
     result = await service.create_trashcan(trashcan, db)    
     return result
+
+@management.get("/trashcans/deleted")
+async def get_deleted_trashcans(db: SessionDep):
+    results = await service.get_deleted_trashcans(db)
+    return results

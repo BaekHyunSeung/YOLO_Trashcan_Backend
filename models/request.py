@@ -48,3 +48,14 @@ class DetectionCreate(BaseModel):
     saved_path: str
     object_count: int
     objects: list[DetectionObject]
+
+class DetectionMetadataItem(BaseModel):
+    class_id: int
+    bbox: list[float]
+    score: float
+
+class DetectionMetadata(BaseModel):
+    camera_id: int
+    frame_id: str | None = None
+    detections: list[DetectionMetadataItem] = []
+    timestamp: str | None = None
