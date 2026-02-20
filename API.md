@@ -184,12 +184,13 @@ Response:
 
 ### 연결 테스트
 - `GET /trashcans_detail/{trashcan_id}/connection-test`
+ - `server_url`에 저장된 라즈베리파이 사설 IP로 ping 연결 테스트합니다. (포트/경로 미사용)
  - 성공 시 `is_online`, `last_connected_at`이 갱신됩니다.
 Response:
 ```json
 {
   "trashcan_id": 1,
-  "server_url": "http://example.com/health",
+  "server_url": "192.168.0.10",
   "is_online": true,
   "reachable": true,
   "status_code": null,
@@ -256,6 +257,7 @@ Response:
 
 ### 상태 확인
 - `GET /management/trashcans/{trashcan_id}/health`
+ - `server_url`에 저장된 라즈베리파이 사설 IP로 ping 연결 테스트합니다. (포트/경로 미사용)
  - 성공 시 `is_online`, `last_connected_at`이 갱신됩니다.
 Response:
 ```json
@@ -300,7 +302,7 @@ Response:
 
 ### 생성
 - `POST /management/trashcans`
- - 등록 전 `server_url`에 연결 테스트를 수행하며, 서버가 `200`을 반환할 때만 등록됩니다.
+ - 등록 전 `server_url`(라즈베리파이 사설 IP)로 ping 연결 테스트를 수행합니다.
  - 실패 시 등록이 중단되고 실패 응답을 반환합니다.
 Request Body:
 ```json
@@ -311,7 +313,7 @@ Request Body:
   "address_detail": "서울 강남구 ...",
   "trashcan_latitude": 37.0,
   "trashcan_longitude": 127.0,
-  "server_url": "http://example.com/health"
+  "server_url": "192.168.0.10"
 }
 ```
 Response:

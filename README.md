@@ -71,16 +71,28 @@ python -m uvicorn main:app --reload
 
 ## 에러 로그
 
-디텍션 수신 처리 중 에러가 발생하면 `trashcan_error_log` 테이블에 자동 저장됩니다.
-조회 API는 `API.md`의 대시보드 로그 섹션을 참고하세요.
+- 저장 트리거: 디텍션 수신(`/detect/result`) 처리 중 에러 발생 시 자동 저장
+- 보조 필드: `trashcan_id`를 찾을 수 없는 경우를 위해 로그에 `camera_id`도 함께 저장
+- 시간 필드 규칙
+  - `occurred_at`: 요청에 값이 있으면 사용, 없거나 파싱 실패면 서버 현재 시간
+  - `created_at`: DB에 로그가 저장된 시각
+  - `last_occurred_at`: 동일 에러가 반복될 때 마지막 발생 시각
+- 중복 처리: 동일 에러가 1분 이내 반복되면 새 로그 대신 `repeat_count` 증가
+- 조회: `/dashboard/trashcan/error/{trashcan_id}?limit=50` (최신순)
+- 조회 제한: 기본 50건, 최대 200건
+- 관련 문서: `API.md`의 대시보드 로그 섹션 참고
 
-`trashcan_id`를 찾을 수 없는 경우를 위해 로그에 `camera_id`도 함께 저장합니다.
-동일 에러가 1분 이내 반복되면 새 로그 대신 `repeat_count`만 증가합니다.
-로그 조회는 기본 50건이며 최대 200건까지 제한됩니다.
-에러/미연결 쓰레기통 목록은 `/dashboard/trashcan/error`에서 조회합니다.
-`last_connected_at` 기준 5분 이상 수신/테스트가 없으면 `is_online`이 False로 처리됩니다.
-연결 테스트 성공 시 `is_online`, `last_connected_at`이 갱신됩니다.
-기준 시간(5분)은 `service/trashcan_status_utils.py`에서 변경합니다.
+## 연결 상태 관리
+
+- 기준 데이터: `is_online`, `last_connected_at`
+- 온라인 처리
+  - 디텍션 수신(`/detect/result`) 시 `is_online=True`, `last_connected_at=현재시간`
+  - 연결 테스트 성공 시 `is_online=True`, `last_connected_at=현재시간`
+- 오프라인 처리
+  - 연결 테스트 실패 시 `is_online=False`
+  - `last_connected_at`가 5분 이상 경과하면 자동으로 `is_online=False`
+- 연결 테스트 방식
+  - `server_url`에 저장된 라즈베리파이 사설 IP로 **ping** 테스트 (포트/경로 미사용)
 
 ## 쓰레기통 등록 주의사항
 
