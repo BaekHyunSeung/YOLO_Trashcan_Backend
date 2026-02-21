@@ -1,7 +1,3 @@
-import asyncio
-from datetime import datetime
-
-from service.connection_utils import ping_server
 from service.trashcan_status_utils import mark_offline_if_stale
 
 from sqlmodel import select
@@ -79,48 +75,6 @@ class TrashcanDetail:
             },
         }
 
-    async def test_trashcan_connection(self, trashcan_id: int, db: SessionDep):
-        stmt = (
-            select(Trashcan)
-            .where(Trashcan.trashcan_id == trashcan_id)
-            .where(Trashcan.is_deleted == False)
-        )
-        row = (await db.execute(stmt)).first()
-        if not row:
-            return None
-
-        trashcan = row[0]
-        server_url = trashcan.server_url
-        reachable = False
-        reason = None
-        status_code = None
-        response_body = None
-
-        if not server_url:
-            reason = "server_url 없음"
-        else:
-            reachable = await asyncio.to_thread(ping_server, server_url)
-            if not reachable:
-                reason = "Failed to connect to server"
-            else:
-                trashcan.is_online = True
-                trashcan.last_connected_at = datetime.now()
-                await db.commit()
-
-        if server_url and not reachable:
-            trashcan.is_online = False
-            await db.commit()
-
-        return {
-            "trashcan_id": trashcan.trashcan_id,
-            "server_url": server_url,
-            "is_online": trashcan.is_online,
-            "reachable": reachable,
-            "status_code": status_code,
-            "response_body": response_body,
-            "reason": reason,
-        }
-    
     async def get_waste_detail(self, trashcan_id: int, db: SessionDep):
         trashcan_stmt = (
             select(Trashcan.trashcan_id)

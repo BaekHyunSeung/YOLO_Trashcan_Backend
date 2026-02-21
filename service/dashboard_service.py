@@ -54,17 +54,12 @@ class DashboardService:
 
     async def get_full_trashcans(self, db: SessionDep):
         fill_rate = (
-            func.coalesce(Trashcan.current_volume, 0)
+            (func.coalesce(Trashcan.current_volume, 0) * 100.0)
             / func.nullif(Trashcan.trashcan_capacity, 0)
-        )
-        fill_status = case(
-            (fill_rate >= 0.9, "포화"),
-            (fill_rate >= 0.5, "보통"),
-            else_="여유",
-        ).label("fill_status")
+        ).label("fill_rate")
         status_order = case(
-            (fill_rate >= 0.9, 1),
-            (fill_rate >= 0.5, 2),
+            (fill_rate >= 90, 1),
+            (fill_rate >= 50, 2),
             else_=3,
         ).label("status_order")
 
@@ -72,7 +67,7 @@ class DashboardService:
             select(
                 Trashcan.trashcan_id,
                 Trashcan.trashcan_name,
-                fill_status,
+                fill_rate,
             )
             .where(Trashcan.is_deleted == False)
             .order_by(status_order.asc(), fill_rate.desc(), Trashcan.trashcan_id.asc())
@@ -80,8 +75,9 @@ class DashboardService:
         rows = (await db.execute(stmt)).all()
         return [
             {
+                "trashcan_id": row.trashcan_id,
                 "trashcan_name": row.trashcan_name,
-                "fill_status": row.fill_status,
+                "fill_rate": round(float(row.fill_rate or 0), 2),
             }
             for row in rows
         ]
@@ -183,68 +179,6 @@ class DashboardService:
             }
             for row in rows
         ]
-
-    async def save_trashcan_error_log(
-        self,
-        trashcan_id: int | None,
-        camera_id: int | None,
-        status_code: int,
-        message: str | None,
-        occurred_at: str | None,
-        db: SessionDep,
-    ) -> None:
-        if trashcan_id is not None:
-            if not await self._ensure_trashcan_exists(trashcan_id, db):
-                return
-        occurred_value = None
-        if occurred_at:
-            try:
-                normalized = occurred_at.replace("Z", "+00:00")
-                occurred_value = datetime.fromisoformat(normalized)
-            except ValueError:
-                occurred_value = None
-        effective_time = occurred_value or datetime.now()
-        if effective_time.tzinfo is not None:
-            effective_time = effective_time.astimezone(tz=None).replace(tzinfo=None)
-        base_stmt = (
-            select(TrashcanErrorLog)
-            .where(TrashcanErrorLog.status_code == status_code)
-            .where(TrashcanErrorLog.message == message)
-        )
-        if trashcan_id is not None:
-            base_stmt = base_stmt.where(TrashcanErrorLog.trashcan_id == trashcan_id)
-        else:
-            base_stmt = base_stmt.where(TrashcanErrorLog.trashcan_id.is_(None))
-            base_stmt = base_stmt.where(TrashcanErrorLog.camera_id == camera_id)
-        last_log = (
-            await db.execute(
-                base_stmt.order_by(
-                    desc(TrashcanErrorLog.created_at),
-                    desc(TrashcanErrorLog.id),
-                ).limit(1)
-            )
-        ).scalar_one_or_none()
-        if last_log:
-            last_time = last_log.last_occurred_at or last_log.created_at
-            if last_time and last_time.tzinfo is not None:
-                last_time = last_time.astimezone(tz=None).replace(tzinfo=None)
-            if last_time and effective_time - last_time <= timedelta(minutes=1):
-                last_log.repeat_count = (last_log.repeat_count or 1) + 1
-                last_log.last_occurred_at = effective_time
-                await db.commit()
-                return
-        log = TrashcanErrorLog(
-            trashcan_id=trashcan_id,
-            camera_id=camera_id,
-            status_code=status_code,
-            message=message,
-            occurred_at=occurred_value,
-            last_occurred_at=effective_time,
-            repeat_count=1,
-        )
-        db.add(log)
-        await db.commit()
-        return
 
     async def get_trashcan_error_logs(
         self, trashcan_id: int, limit: int, db: SessionDep

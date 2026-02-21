@@ -1,6 +1,13 @@
+import asyncio
+from datetime import datetime
 import platform
 import subprocess
 from urllib.parse import urlparse
+
+from sqlmodel import select
+
+from db.db import SessionDep
+from db.entity import Trashcan
 
 
 def _normalize_host(raw: str) -> str | None:
@@ -35,3 +42,29 @@ def ping_server(url: str, timeout: int = 3) -> bool:
         return result.returncode == 0
     except Exception:
         return False
+
+
+async def check_trashcan_connection(trashcan_id: int, db: SessionDep) -> dict:
+    stmt = select(Trashcan).where(Trashcan.trashcan_id == trashcan_id)
+    trashcan = (await db.execute(stmt)).scalar_one_or_none()
+    if not trashcan or not trashcan.server_url:
+        return {
+            "trashcan_id": trashcan_id,
+            "status": "error",
+            "message": "Server URL not found",
+        }
+
+    reachable = await asyncio.to_thread(ping_server, trashcan.server_url)
+    if reachable:
+        trashcan.is_online = True
+        trashcan.last_connected_at = datetime.now()
+        await db.commit()
+        return {"trashcan_id": trashcan_id, "status": "ok", "message": "Server is healthy"}
+
+    trashcan.is_online = False
+    await db.commit()
+    return {
+        "trashcan_id": trashcan_id,
+        "status": "error",
+        "message": "Failed to connect to server",
+    }

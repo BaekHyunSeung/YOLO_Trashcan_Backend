@@ -3,6 +3,7 @@ from models.request import TrashcanModify
 from models.request import TrashcanCreate
 from db.db import SessionDep
 from service.trashcan_management_service import TrashcanManagementService
+from service.connection_utils import check_trashcan_connection
 
 management = APIRouter(prefix="/management")
 service = TrashcanManagementService()
@@ -14,7 +15,7 @@ async def get_trashcans(db: SessionDep):
 
 @management.get("/trashcans/{trashcan_id}/health")
 async def get_trashcan_health(trashcan_id: int, db: SessionDep):
-    result = await service.get_trashcan_health(trashcan_id, db)
+    result = await check_trashcan_connection(trashcan_id, db)
     return result
 
 @management.put("/trashcans")

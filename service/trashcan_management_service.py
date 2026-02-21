@@ -1,5 +1,5 @@
 import asyncio
-from datetime import datetime
+
 from sqlmodel import select
 from sqlalchemy import func
 from db.entity import Trashcan, Detection
@@ -34,27 +34,6 @@ class TrashcanManagementService:
             }
             for row in rows
         ]
-
-    async def get_trashcan_health(self, trashcan_id: int, db: SessionDep):
-        stmt = select(Trashcan).where(Trashcan.trashcan_id == trashcan_id)
-        trashcan = (await db.execute(stmt)).scalar_one_or_none()
-        if not trashcan or not trashcan.server_url:
-            return {"trashcan_id": trashcan_id, "status": "error", "message": "Server URL not found"}
-
-        try:
-            reachable = await asyncio.to_thread(ping_server, trashcan.server_url)
-        except Exception:
-            return {"trashcan_id": trashcan_id, "status": "error", "message": "Failed to connect to server"}
-        
-        if reachable:
-            trashcan.is_online = True
-            trashcan.last_connected_at = datetime.now()
-            await db.commit()
-            return {"trashcan_id": trashcan_id, "status": "ok", "message": "Server is healthy"}
-        trashcan.is_online = False
-        await db.commit()
-        return {"trashcan_id": trashcan_id, "status": "error", "message": "Failed to connect to server"}
-        
 
     async def modify_trashcan(self, trashcan: TrashcanModify, db: SessionDep):
         stmt = select(Trashcan).where(Trashcan.trashcan_id == trashcan.trashcan_id)

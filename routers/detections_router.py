@@ -5,11 +5,9 @@ from pydantic import ValidationError
 from db.db import SessionDep
 from models.request import DetectionMetadata
 from service.detections_service import DetectionService
-from service.dashboard_service import DashboardService
 
 detections = APIRouter(prefix="/detect")
 service = DetectionService()
-log_service = DashboardService()
 
 @detections.post("/result", status_code=204)
 async def receive_detection(
@@ -37,7 +35,7 @@ async def receive_detection(
             input_value = err.get("input")
             error_messages.append(f"{loc_str}: {msg} (input={input_value})")
         message = "; ".join(error_messages) if error_messages else "metadata validation error"
-        await log_service.save_trashcan_error_log(
+        await service.save_trashcan_error_log(
             trashcan_id,
             camera_id,
             422,
@@ -52,7 +50,7 @@ async def receive_detection(
     try:
         await service.detection_mapping(payload, file, db, trashcan_id=trashcan_id) 
     except HTTPException as exc:
-        await log_service.save_trashcan_error_log(
+        await service.save_trashcan_error_log(
             trashcan_id,
             camera_id,
             exc.status_code,
@@ -62,7 +60,7 @@ async def receive_detection(
         )
         raise
     except Exception as exc:
-        await log_service.save_trashcan_error_log(
+        await service.save_trashcan_error_log(
             trashcan_id,
             camera_id,
             500,

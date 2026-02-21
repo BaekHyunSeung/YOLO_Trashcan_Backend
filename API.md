@@ -40,7 +40,7 @@ Response:
 Response:
 ```json
 [
-  { "trashcan_name": "A", "fill_status": "포화" }
+  { "trashcan_id": 1, "trashcan_name": "A", "fill_rate": 95.00 }
 ]
 ```
 
@@ -59,7 +59,7 @@ Response:
 ```
 
 ### 미연결/에러 쓰레기통 목록
-- `GET /dashboard/trashcan/error`
+- `GET /dashboard/trashcans/error`
  - 현재 미연결 상태이거나 최근 1분 내 에러 로그가 있는 쓰레기통을 반환합니다.
  - `last_connected_at` 기준 5분 이상 수신/테스트가 없으면 `is_online`이 False로 처리됩니다.
 Response:
@@ -75,7 +75,7 @@ Response:
 ```
 
 ### 쓰레기통 에러 로그 조회
-- `GET /dashboard/trashcan/error/{trashcan_id}?limit=50`
+- `GET /dashboard/trashcans/error/{trashcan_id}?limit=50`
  - 디텍션 수신(`/detect/result`) 중 에러 발생 시 자동 저장된 로그를 조회합니다.
  - 동일 에러가 1분 내 반복되면 `repeat_count`만 증가합니다.
  - `limit`: 1~200 (기본 50)
@@ -107,15 +107,19 @@ Response:
 - 수거량 많은 순으로 기본 정렬
 Response:
 ```json
-[
-  {
-    "trashcan_id": 1,
-    "trashcan_name": "A",
-    "address_detail": "서울 강남구 ...",
-    "is_online": true,
-    "total_collected": 120
-  }
-]
+{
+  "total": 100,
+  "items": [
+    {
+      "trashcan_id": 1,
+      "trashcan_name": "A",
+      "address_detail": "서울 강남구 ...",
+      "is_online": true,
+      "total_collected": 120,
+      "fill_rate": 60.00
+    }
+  ]
+}
 ```
 
 ### 정렬/검색
@@ -137,16 +141,20 @@ is_online: 연결 상태 기준 정렬 (false < true)
 ```
 Response:
 ```json
-[
-  {
-    "trashcan_id": 1,
-    "trashcan_name": "A",
-    "address_detail": "서울 강남구 ...",
-    "is_online": true,
-    "total_collected": 120,
-    "free_capacity": 40
-  }
-]
+{
+  "total": 100,
+  "items": [
+    {
+      "trashcan_id": 1,
+      "trashcan_name": "A",
+      "address_detail": "서울 강남구 ...",
+      "is_online": true,
+      "total_collected": 120,
+      "free_capacity": 40,
+      "fill_rate": 60.00
+    }
+  ]
+}
 ```
 
 ### 검색
@@ -190,12 +198,8 @@ Response:
 ```json
 {
   "trashcan_id": 1,
-  "server_url": "192.168.0.10",
-  "is_online": true,
-  "reachable": true,
-  "status_code": null,
-  "response_body": null,
-  "reason": null
+  "status": "ok",
+  "message": "Server is healthy"
 }
 ```
 

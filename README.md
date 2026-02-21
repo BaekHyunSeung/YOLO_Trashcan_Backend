@@ -78,7 +78,7 @@ python -m uvicorn main:app --reload
   - `created_at`: DB에 로그가 저장된 시각
   - `last_occurred_at`: 동일 에러가 반복될 때 마지막 발생 시각
 - 중복 처리: 동일 에러가 1분 이내 반복되면 새 로그 대신 `repeat_count` 증가
-- 조회: `/dashboard/trashcan/error/{trashcan_id}?limit=50` (최신순)
+- 조회: `/dashboard/trashcans/error/{trashcan_id}?limit=50` (최신순)
 - 조회 제한: 기본 50건, 최대 200건
 - 관련 문서: `API.md`의 대시보드 로그 섹션 참고
 

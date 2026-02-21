@@ -1,7 +1,8 @@
 from datetime import datetime, date, timedelta
 from sqlmodel import select
+from sqlalchemy import desc
 from db.db import SessionDep
-from db.entity import Detection, DetectionDetail, DailyStats, Trashcan, WasteType
+from db.entity import Detection, DetectionDetail, DailyStats, Trashcan, WasteType, TrashcanErrorLog
 from models.request import DetectionCreate, DetectionObject, BBox
 from fastapi import HTTPException
 
@@ -15,6 +16,14 @@ def class_id_to_type_name(class_id: int) -> str | None:
     return mapping.get(class_id)
 
 class DetectionService:
+    async def _ensure_trashcan_exists(self, trashcan_id: int, db: SessionDep) -> bool:
+        stmt = (
+            select(Trashcan.trashcan_id)
+            .where(Trashcan.trashcan_id == trashcan_id)
+            .where(Trashcan.is_deleted == False)
+        )
+        return (await db.execute(stmt)).first() is not None
+
     async def detection_mapping(
         self,
         data,
@@ -71,6 +80,68 @@ class DetectionService:
 
         await self.save_detection(payload, db)
         return None
+
+    async def save_trashcan_error_log(
+        self,
+        trashcan_id: int | None,
+        camera_id: int | None,
+        status_code: int,
+        message: str | None,
+        occurred_at: str | None,
+        db: SessionDep,
+    ) -> None:
+        if trashcan_id is not None:
+            if not await self._ensure_trashcan_exists(trashcan_id, db):
+                return
+        occurred_value = None
+        if occurred_at:
+            try:
+                normalized = occurred_at.replace("Z", "+00:00")
+                occurred_value = datetime.fromisoformat(normalized)
+            except ValueError:
+                occurred_value = None
+        effective_time = occurred_value or datetime.now()
+        if effective_time.tzinfo is not None:
+            effective_time = effective_time.astimezone(tz=None).replace(tzinfo=None)
+        base_stmt = (
+            select(TrashcanErrorLog)
+            .where(TrashcanErrorLog.status_code == status_code)
+            .where(TrashcanErrorLog.message == message)
+        )
+        if trashcan_id is not None:
+            base_stmt = base_stmt.where(TrashcanErrorLog.trashcan_id == trashcan_id)
+        else:
+            base_stmt = base_stmt.where(TrashcanErrorLog.trashcan_id.is_(None))
+            base_stmt = base_stmt.where(TrashcanErrorLog.camera_id == camera_id)
+        last_log = (
+            await db.execute(
+                base_stmt.order_by(
+                    desc(TrashcanErrorLog.created_at),
+                    desc(TrashcanErrorLog.id),
+                ).limit(1)
+            )
+        ).scalar_one_or_none()
+        if last_log:
+            last_time = last_log.last_occurred_at or last_log.created_at
+            if last_time and last_time.tzinfo is not None:
+                last_time = last_time.astimezone(tz=None).replace(tzinfo=None)
+            if last_time and effective_time - last_time <= timedelta(minutes=1):
+                last_log.repeat_count = (last_log.repeat_count or 1) + 1
+                last_log.last_occurred_at = effective_time
+                await db.commit()
+                return
+        log = TrashcanErrorLog(
+            trashcan_id=trashcan_id,
+            camera_id=camera_id,
+            status_code=status_code,
+            message=message,
+            occurred_at=occurred_value,
+            last_occurred_at=effective_time,
+            repeat_count=1,
+        )
+        db.add(log)
+        await db.commit()
+        return
 
     async def get_waste_type_id(self, type_name: str, db: SessionDep) -> int | None:
         stmt = select(WasteType.waste_type_id).where(WasteType.type_name == type_name)
