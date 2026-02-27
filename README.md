@@ -20,18 +20,6 @@ DB_PORT=3306
 DB_NAME=yolo_trash
 ```
 
-## 서버 실행
-
-```bash
-python main.py
-```
-
-또는 개발용(자동 리로드):
-
-```bash
-python -m uvicorn main:app --reload
-```
-
 ## API 문서
 
 `API.md` 참고
@@ -43,7 +31,8 @@ python -m uvicorn main:app --reload
 ├─ main.py                # FastAPI 진입점
 ├─ API.md                 # API 문서
 ├─ README.md              # 프로젝트 설명
-├─ metadata.json          # 테스트용 메타데이터 샘플
+├─ metadata.json          # 탐지 메타데이터 샘플
+├─ requirements.txt       # 패키지 의존성 목록
 ├─ db/
 │  ├─ db.py               # DB 세션/엔진
 │  └─ entity.py           # SQLModel 엔티티
@@ -57,15 +46,38 @@ python -m uvicorn main:app --reload
 │  ├─ trashcan_management_router.py # 쓰레기통 관리 API
 │  └─ trashcan_map_router.py      # 지도 API
 └─ service/
-   ├─ dashboard_service.py
-   ├─ detections_service.py
-   ├─ trashcan_detail_service.py
-   ├─ trashcan_list_service.py
-   ├─ trashcan_management_service.py
-   ├─ trashcan_map_service.py
-   ├─ connection_utils.py
+   ├─ dashboard_service.py        # 대시보드 집계/통계 처리
+   ├─ detections_service.py       # 디텍션 저장/매핑 처리
+   ├─ trashcan_detail_service.py  # 쓰레기통 상세/이력 조회
+   ├─ trashcan_list_service.py    # 목록/검색/정렬 처리
+   ├─ trashcan_management_service.py # 관리(생성/수정/삭제) 처리
+   ├─ trashcan_map_service.py     # 지도용 좌표 조회
+   ├─ connection_utils.py         # ping 연결 체크 유틸
    └─ trashcan_status_utils.py    # 온라인 상태 갱신 유틸
 ```
+
+## 메타데이터 형식
+
+탐지 결과 업로드(`/detect/result`)의 `metadata`는 JSON 문자열이며, 형식은 아래와 같습니다.
+
+```json
+{
+  "camera_id": 1,
+  "frame_id": "frame_001",
+  "detections": [
+    { "class_id": 0, "bbox": [0, 0, 10, 10], "score": 0.98 }
+  ],
+  "timestamp": "2026-02-09T14:10:00Z"
+}
+```
+
+- `camera_id`: 카메라(쓰레기통) 식별자
+- `frame_id`: 프레임 식별자(선택)
+- `detections`: 탐지 결과 목록
+  - `class_id`: 클래스 ID
+  - `bbox`: `[x1, y1, x2, y2]`
+  - `score`: 신뢰도
+- `timestamp`: ISO 8601 형식(선택)
 
 ## 에러 로그
 
