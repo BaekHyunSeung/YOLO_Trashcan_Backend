@@ -2,12 +2,10 @@
 
 쓰레기통/대시보드/탐지 수신용 백엔드 서버입니다.
 
-## 필수 설치 패키지
-
-아래 패키지는 서버 실행에 필요합니다.
+## 패키지 설치
 
 ```bash
-pip install fastapi uvicorn sqlmodel sqlalchemy aiomysql pydantic python-dotenv python-multipart
+pip install -r requirements.txt
 ```
 
 ## 환경 변수(.env)
