@@ -1,3 +1,6 @@
+import os
+from pathlib import Path
+
 from service.trashcan_status_utils import mark_offline_if_stale
 
 from sqlmodel import select
@@ -10,6 +13,10 @@ from service.waste_type_config import get_waste_type_names
 class TrashcanDetail:
     def __init__(self):
         pass
+
+    def _get_image_root_path(self) -> Path:
+        configured_path = os.getenv("IMAGE_PATH")
+        return Path(configured_path.strip().strip("\""))
 
     async def get_trashcans_detail(self, trashcan_id: int, db: SessionDep):
         await mark_offline_if_stale(db, minutes=5)
@@ -170,3 +177,26 @@ class TrashcanDetail:
             "total_events": int(total_events),
             "items_by_type": items_by_type,
         }
+
+    async def get_detection_image_path(
+        self,
+        trashcan_id: int,
+        detection_id: int,
+        db: SessionDep,
+    ) -> Path | None:
+        stmt = (
+            select(Detection.image_path)
+            .join(Trashcan, Trashcan.trashcan_id == Detection.trashcan_id)
+            .where(Detection.trashcan_id == trashcan_id)
+            .where(Detection.detection_id == detection_id)
+            .where(Trashcan.is_deleted == False)
+        )
+        relative_path = (await db.execute(stmt)).scalar_one_or_none()
+        if not relative_path:
+            return None
+
+        absolute_path = self._get_image_root_path() / relative_path
+        if not absolute_path.is_file():
+            return None
+
+        return absolute_path

@@ -19,7 +19,7 @@ uvicorn main:app --host 0.0.0.0 --port 8000
 
 ## 환경 변수(.env)
 
-`.env`에 DB 접속 정보, 서버 실행 정보, 기본 쓰레기 타입 정보를 설정해야 합니다.
+`.env`에 DB 접속 정보, 서버 실행 정보, 이미지 저장 경로, 기본 쓰레기 타입 정보를 설정해야 합니다.
 
 ```
 DB_USER=
@@ -30,6 +30,7 @@ DB_NAME=yolo_trash
 APP_HOST=0.0.0.0
 APP_PORT=8000
 ALLOWED_ORIGINS=http://localhost:5173,http://localhost:5174,http://127.0.0.1:5173,http://127.0.0.1:5174
+IMAGE_PATH=C:\smart_trashcan
 WASTE_TYPE_1=MetalCan
 WASTE_TYPE_2=PetBottle
 WASTE_TYPE_3=Plastic
@@ -41,6 +42,7 @@ CLASS_ID_TO_WASTE_TYPE_ID=0:1,1:2,2:3,3:4
 - `APP_HOST`: FastAPI 서버 실행 호스트
 - `APP_PORT`: FastAPI 서버 실행 포트
 - `ALLOWED_ORIGINS`: CORS 허용 프론트 주소 목록
+- `IMAGE_PATH`: 디텍션 업로드 이미지를 저장할 상위 디렉터리 경로
 - 여러 주소를 허용할 경우 `,`로 구분합니다.
 - `WASTE_TYPE_{id}`: `wastetype` 테이블에 동기화할 쓰레기 타입 이름
 - `CLASS_ID_TO_WASTE_TYPE_ID`: YOLO `class_id`와 `waste_type_id`를 직접 매핑하는 선택 설정
@@ -143,6 +145,21 @@ CLASS_ID_TO_WASTE_TYPE_ID=0:1,1:2,2:3,3:4
 - `timestamp`: ISO 8601 형식(선택)
 
 `class_id`는 기본적으로 `waste_type_id - 1` 규칙으로 타입에 매핑됩니다. 다른 순서를 사용하려면 `.env`의 `CLASS_ID_TO_WASTE_TYPE_ID`를 설정하면 됩니다.
+
+## 이미지 저장 규칙
+
+- 디텍션 업로드 시 전달된 이미지 파일은 서버 디스크에 저장됩니다.
+- 실제 저장 경로의 상위 디렉터리는 `.env`의 `IMAGE_PATH`를 사용합니다.
+- DB의 `image_path`에는 상대 경로 형식인 `detect_img/<파일명>`이 저장됩니다.
+- 최종 저장 경로는 `IMAGE_PATH + detect_img/<파일명>` 조합으로 결정됩니다.
+
+예시:
+
+```text
+IMAGE_PATH=C:\smart_trashcan
+DB image_path=detect_img/example.jpg
+실제 저장 경로=C:\smart_trashcan\detect_img\example.jpg
+```
 
 ## 에러 로그
 

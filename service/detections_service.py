@@ -1,3 +1,5 @@
+import os
+from pathlib import Path
 from datetime import datetime, date, timedelta
 from sqlmodel import select
 from sqlalchemy import desc
@@ -8,6 +10,8 @@ from fastapi import HTTPException
 from service.waste_type_config import get_class_id_to_type_name
 
 class DetectionService:
+    IMAGE_RELATIVE_DIR = "detect_img"
+
     async def _ensure_trashcan_exists(self, trashcan_id: int, db: SessionDep) -> bool:
         stmt = (
             select(Trashcan.trashcan_id)
@@ -15,6 +19,29 @@ class DetectionService:
             .where(Trashcan.is_deleted == False)
         )
         return (await db.execute(stmt)).first() is not None
+
+    def _get_image_root_path(self) -> Path:
+        configured_path = os.getenv("IMAGE_PATH")
+        return Path(configured_path.strip().strip("\""))
+
+    def _build_image_paths(self, original_filename: str | None) -> tuple[str, str, Path]:
+        safe_filename = Path(original_filename or "").name
+        if not safe_filename:
+            safe_filename = f"detection_{datetime.now():%Y%m%d_%H%M%S}.jpg"
+
+        relative_path = Path(self.IMAGE_RELATIVE_DIR) / safe_filename
+        absolute_path = self._get_image_root_path() / relative_path
+        return safe_filename, relative_path.as_posix(), absolute_path
+
+    async def save_uploaded_image(self, file) -> tuple[str, str]:
+        safe_filename, saved_path, absolute_path = self._build_image_paths(file.filename)
+        absolute_path.parent.mkdir(parents=True, exist_ok=True)
+
+        contents = await file.read()
+        absolute_path.write_bytes(contents)
+        await file.seek(0)
+
+        return safe_filename, saved_path
 
     async def detection_mapping(
         self,
@@ -62,10 +89,11 @@ class DetectionService:
             )
             objects.append(obj)
 
+        safe_filename, saved_path = await self.save_uploaded_image(file)
         payload = DetectionCreate(
             trashcan_id=trashcan_id,
-            filename=file.filename,
-            saved_path=f"detect_img/{file.filename}",
+            filename=safe_filename,
+            saved_path=saved_path,
             object_count=len(objects),
             objects=objects,
         )

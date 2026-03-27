@@ -1,4 +1,5 @@
 from fastapi import APIRouter, HTTPException, Query
+from fastapi.responses import FileResponse
 from db.db import SessionDep
 from service.connection_utils import check_trashcan_connection
 from service.trashcan_detail_service import TrashcanDetail
@@ -35,3 +36,15 @@ async def get_trashcan_waste_detail(
     if result is None:
         raise HTTPException(status_code=404, detail="Trashcan not found")
     return result
+
+
+@trashcans_detail.get("/{trashcan_id}/waste-detail/{detection_id}")
+async def get_trashcan_waste_image(
+    trashcan_id: int,
+    detection_id: int,
+    db: SessionDep,
+):
+    image_path = await service.get_detection_image_path(trashcan_id, detection_id, db)
+    if image_path is None:
+        raise HTTPException(status_code=404, detail="Image not found")
+    return FileResponse(image_path)
