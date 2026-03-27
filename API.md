@@ -244,7 +244,7 @@ Response:
 ```
 
 ### 쓰레기 상세 이미지 조회
-- `GET /trashcans_detail/{trashcan_id}/waste-detail/{detection_id}/image`
+- `GET /trashcans_detail/{trashcan_id}/waste-detail/{detection_id}`
 - DB에 저장된 `image_path`와 `.env`의 `IMAGE_PATH`를 조합해 실제 이미지 파일을 반환합니다.
 - 파일이 없거나 해당 `detection_id`가 없으면 `404`를 반환합니다.
 - 응답 형식: 이미지 파일 바이너리 (`FileResponse`)

@@ -15,7 +15,7 @@ class TrashcanDetail:
         pass
 
     def _get_image_root_path(self) -> Path:
-        configured_path = os.getenv("IMAGE_PATH") or os.getenv("image_path") or "."
+        configured_path = os.getenv("IMAGE_PATH")
         return Path(configured_path.strip().strip("\""))
 
     async def get_trashcans_detail(self, trashcan_id: int, db: SessionDep):
