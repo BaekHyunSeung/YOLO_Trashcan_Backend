@@ -44,8 +44,8 @@ class DetectionObject(BaseModel):
 
 class DetectionCreate(BaseModel):
     trashcan_id: int
-    filename: str
-    saved_path: str
+    filename: str | None = None
+    saved_path: str | None = None
     object_count: int
     objects: list[DetectionObject]
 

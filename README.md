@@ -152,13 +152,15 @@ CLASS_ID_TO_WASTE_TYPE_ID=0:1,1:2,2:3,3:4
 - 실제 저장 경로의 상위 디렉터리는 `.env`의 `IMAGE_PATH`를 사용합니다.
 - DB의 `image_path`에는 상대 경로 형식인 `detect_img/<파일명>`이 저장됩니다.
 - 최종 저장 경로는 `IMAGE_PATH + detect_img/<파일명>` 조합으로 결정됩니다.
+- 저장 파일명은 `{trashcan_id}_{detection_id}_{detected_at}` 형식을 사용합니다.
+- 파일명의 시간값은 파일명으로 안전하게 쓰기 위해 `YYYYMMDD_HHMMSS` 형식으로 저장됩니다.
 
 예시:
 
 ```text
 IMAGE_PATH=C:\smart_trashcan
-DB image_path=detect_img/example.jpg
-실제 저장 경로=C:\smart_trashcan\detect_img\example.jpg
+DB image_path=detect_img/1_296_20260327_141424.jpg
+실제 저장 경로=C:\smart_trashcan\detect_img\1_296_20260327_141424.jpg
 ```
 
 ## 에러 로그

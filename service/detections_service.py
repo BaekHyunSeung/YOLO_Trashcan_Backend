@@ -24,17 +24,38 @@ class DetectionService:
         configured_path = os.getenv("IMAGE_PATH")
         return Path(configured_path.strip().strip("\""))
 
-    def _build_image_paths(self, original_filename: str | None) -> tuple[str, str, Path]:
-        safe_filename = Path(original_filename or "").name
-        if not safe_filename:
-            safe_filename = f"detection_{datetime.now():%Y%m%d_%H%M%S}.jpg"
+    def _build_image_filename(
+        self,
+        trashcan_id: int,
+        detection_id: int,
+        detected_at: datetime,
+        original_filename: str | None,
+    ) -> str:
+        original_name = Path(original_filename or "").name
+        suffix = Path(original_name).suffix or ".jpg"
+        timestamp = detected_at.strftime("%Y%m%d_%H%M%S")
+        return f"{trashcan_id}_{detection_id}_{timestamp}{suffix}"
 
-        relative_path = Path(self.IMAGE_RELATIVE_DIR) / safe_filename
+    def _build_image_paths(self, saved_filename: str) -> tuple[str, str, Path]:
+        relative_path = Path(self.IMAGE_RELATIVE_DIR) / saved_filename
         absolute_path = self._get_image_root_path() / relative_path
-        return safe_filename, relative_path.as_posix(), absolute_path
+        return saved_filename, relative_path.as_posix(), absolute_path
 
-    async def save_uploaded_image(self, file) -> tuple[str, str]:
-        safe_filename, saved_path, absolute_path = self._build_image_paths(file.filename)
+    async def save_uploaded_image(
+        self,
+        file,
+        trashcan_id: int,
+        detection_id: int,
+        detected_at: datetime,
+        original_filename: str | None,
+    ) -> tuple[str, str]:
+        saved_filename = self._build_image_filename(
+            trashcan_id,
+            detection_id,
+            detected_at,
+            original_filename,
+        )
+        safe_filename, saved_path, absolute_path = self._build_image_paths(saved_filename)
         absolute_path.parent.mkdir(parents=True, exist_ok=True)
 
         contents = await file.read()
@@ -89,16 +110,14 @@ class DetectionService:
             )
             objects.append(obj)
 
-        safe_filename, saved_path = await self.save_uploaded_image(file)
         payload = DetectionCreate(
             trashcan_id=trashcan_id,
-            filename=safe_filename,
-            saved_path=saved_path,
+            filename=file.filename,
             object_count=len(objects),
             objects=objects,
         )
 
-        await self.save_detection(payload, db)
+        await self.save_detection(payload, file, db)
         return None
 
     async def save_trashcan_error_log(
@@ -190,18 +209,30 @@ class DetectionService:
         target.last_connected_at = datetime.now()
         await db.commit()
     
-    async def save_detection(self, payload: DetectionCreate, db: SessionDep):
+    async def save_detection(self, payload: DetectionCreate, file, db: SessionDep):
         #detection 저장
+        detected_at = datetime.now()
         detection = Detection(
             trashcan_id=payload.trashcan_id,
-            image_name=payload.filename,
-            image_path=payload.saved_path,
-            detected_at=datetime.now(),
+            image_name=None,
+            image_path=None,
+            detected_at=detected_at,
             object_count=payload.object_count,
         )
         db.add(detection)
         await db.commit()
         await db.refresh(detection)
+
+        safe_filename, saved_path = await self.save_uploaded_image(
+            file,
+            payload.trashcan_id,
+            detection.detection_id,
+            detected_at,
+            payload.filename,
+        )
+        detection.image_name = safe_filename
+        detection.image_path = saved_path
+        await db.commit()
 
         #detection_detail 저장
         for obj in payload.objects:
