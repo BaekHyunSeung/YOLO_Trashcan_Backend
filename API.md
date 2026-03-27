@@ -384,6 +384,8 @@ Response:
   - `metadata`: JSON 문자열
 - `class_id`는 기본적으로 `waste_type_id - 1` 규칙으로 매핑됩니다.
 - 다른 순서를 사용하려면 `.env`의 `CLASS_ID_TO_WASTE_TYPE_ID`를 설정합니다.
+- 업로드된 이미지는 `.env`의 `IMAGE_PATH` 하위 `detect_img/<파일명>` 경로에 저장됩니다.
+- DB의 `image_path`에는 상대 경로인 `detect_img/<파일명>`이 저장됩니다.
 Request Body (metadata JSON 예시):
 ```json
 {
