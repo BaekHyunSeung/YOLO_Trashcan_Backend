@@ -8,6 +8,9 @@ class TrashcanList:
     def __init__(self):
         pass
 
+    def _cap_fill_rate(self, value: float | None) -> float:
+        return round(min(value or 0.0, 100.0), 2)
+
     async def get_trashcans_list(self, db: SessionDep, offset: int, limit: int):
         await mark_offline_if_stale(db, minutes=5)
         total_stmt = select(func.count(Trashcan.trashcan_id)).where(
@@ -47,7 +50,7 @@ class TrashcanList:
                 "trashcan_name": row.trashcan_name,
                 "address_detail": row.address_detail,
                 "is_online": row.is_online,
-                "fill_rate": round(float(row.fill_rate or 0), 2),
+                "fill_rate": self._cap_fill_rate(row.fill_rate),
                 "total_collected": int(row.total_collected or 0),
             }
             for row in rows
@@ -133,7 +136,7 @@ class TrashcanList:
                 "is_online": row.is_online,
                 "total_collected": int(row.total_collected or 0),
                 "free_capacity": int(row.free_capacity or 0),
-                "fill_rate": round(float(row.fill_rate or 0), 2),
+                "fill_rate": self._cap_fill_rate(row.fill_rate),
             }
             for row in rows
         ]

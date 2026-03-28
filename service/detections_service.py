@@ -1,4 +1,5 @@
 import os
+from uuid import uuid4
 from pathlib import Path
 from datetime import datetime, date, timedelta
 from sqlmodel import select
@@ -21,7 +22,7 @@ class DetectionService:
         return (await db.execute(stmt)).first() is not None
 
     def _get_image_root_path(self) -> Path:
-        configured_path = os.getenv("IMAGE_PATH")
+        configured_path = os.getenv("IMAGE_PATH", ".")
         return Path(configured_path.strip().strip("\""))
 
     def _build_image_filename(
@@ -33,8 +34,9 @@ class DetectionService:
     ) -> str:
         original_name = Path(original_filename or "").name
         suffix = Path(original_name).suffix or ".jpg"
-        timestamp = detected_at.strftime("%Y%m%d_%H%M%S")
-        return f"{trashcan_id}_{detection_id}_{timestamp}{suffix}"
+        timestamp = detected_at.strftime("%Y%m%d_%H%M%S_%f")[:-3]
+        uuid = uuid4().hex[:8]
+        return f"{trashcan_id}_{detection_id}_{timestamp}_{uuid}{suffix}"
 
     def _build_image_paths(self, saved_filename: str) -> tuple[str, str, Path]:
         relative_path = Path(self.IMAGE_RELATIVE_DIR) / saved_filename

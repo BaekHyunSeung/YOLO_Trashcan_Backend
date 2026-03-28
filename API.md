@@ -39,6 +39,7 @@ Response:
 
 ### 수거 필요 쓰레기통
 - `GET /dashboard/trashcans/full`
+- `fill_rate`는 응답 시 최대 `100.0`으로 제한됩니다.
 Response:
 ```json
 [
@@ -49,6 +50,8 @@ Response:
 ### 통계 차트
 - `GET /dashboard/charts?period=week|month|year`
 - `period`: `week`, `month`, `year` 중 하나
+- `start_date`, `end_date`: 자유 기간 조회용 날짜 (`YYYY-MM-DD`), 둘 다 함께 보내야 합니다.
+- `start_date`, `end_date`가 있으면 해당 기간을 우선 사용하고 `period`는 무시됩니다.
 - `is_active=True`인 쓰레기 타입만 집계합니다.
 Response:
 ```json
@@ -61,6 +64,25 @@ Response:
   "items_by_city": { "서울": 60 }
 }
 ```
+자유 기간 조회 예시:
+```text
+/dashboard/charts?start_date=2026-03-01&end_date=2026-03-31
+```
+자유 기간 조회 응답 예시:
+```json
+{
+  "period": "custom",
+  "start_date": "2026-03-01",
+  "end_date": "2026-03-31",
+  "total_count": 120,
+  "items_by_type": { "MetalCan": 30 },
+  "items_by_city": { "서울": 60 }
+}
+```
+실패 경우:
+- `400`: `start_date`, `end_date` 중 하나만 보낸 경우
+- `400`: `start_date > end_date`
+- `422`: 날짜 형식이 잘못된 경우
 
 ### 미연결/에러 쓰레기통 목록
 - `GET /dashboard/trashcans/error`
@@ -109,6 +131,7 @@ Response:
 ### 목록 조회
 - `GET /trashcans_list/trashcans?offset=0&limit=20`
 - 수거량 많은 순으로 기본 정렬
+- `fill_rate`는 `current_volume / trashcan_capacity * 100`으로 계산하며, 응답 시 최대 `100.0`으로 제한됩니다.
 Response:
 ```json
 {
@@ -143,6 +166,7 @@ collected: 수거된 총 객체 수 기준 정렬
 free_capacity: 여유 용량(= capacity - current_volume) 기준 정렬
 is_online: 연결 상태 기준 정렬 (false < true)
 ```
+- `fill_rate`는 응답 시 최대 `100.0`으로 제한됩니다.
 Response:
 ```json
 {
@@ -220,7 +244,7 @@ Response:
 ```json
 {
   "trashcan_id": 1,
-  "type_name": "MetalCan",
+  "type_name": null,
   "offset": 0,
   "limit": 20,
   "total_objects": 120,
@@ -231,8 +255,8 @@ Response:
         "detail_id": 501,
         "detection_id": 100,
         "type_name": "MetalCan",
-        "image_name": "img_001.jpg",
-        "image_path": "detect_img/img_001.jpg",
+        "image_name": "1_100_20260327_141424_123_a1b2c3d4.jpg",
+        "image_path": "detect_img/1_100_20260327_141424_123_a1b2c3d4.jpg",
         "detected_at": "2026-02-09T14:10:00"
       }
     ],
@@ -248,6 +272,7 @@ Response:
 - DB에 저장된 `image_path`와 `.env`의 `IMAGE_PATH`를 조합해 실제 이미지 파일을 반환합니다.
 - 파일이 없거나 해당 `detection_id`가 없으면 `404`를 반환합니다.
 - 응답 형식: 이미지 파일 바이너리 (`FileResponse`)
+- 성공 시 `Content-Type`은 이미지 형식에 따라 자동 결정됩니다.
 
 ---
 
@@ -391,8 +416,10 @@ Response:
 - `class_id`는 기본적으로 `waste_type_id - 1` 규칙으로 매핑됩니다.
 - 다른 순서를 사용하려면 `.env`의 `CLASS_ID_TO_WASTE_TYPE_ID`를 설정합니다.
 - 업로드된 이미지는 `.env`의 `IMAGE_PATH` 하위 `detect_img/<파일명>` 경로에 저장됩니다.
-- 저장 파일명은 `{trashcan_id}_{detection_id}_{detected_at}` 형식을 사용합니다.
-- 시간값은 파일명에 맞게 `YYYYMMDD_HHMMSS` 형식으로 변환됩니다.
+- `IMAGE_PATH`를 상대 경로(`storage`)로 설정하면 프로젝트 폴더 기준으로 저장됩니다.
+- 저장 파일명은 `{trashcan_id}_{detection_id}_{detected_at}_{uuid}` 형식을 사용합니다.
+- 시간값은 파일명에 맞게 `YYYYMMDD_HHMMSS_mmm` 형식으로 변환됩니다.
+- 마지막에는 중복 방지를 위한 8자리 UUID가 추가됩니다.
 - DB의 `image_path`에는 상대 경로인 `detect_img/<파일명>`이 저장됩니다.
 Request Body (metadata JSON 예시):
 ```json

@@ -1,3 +1,4 @@
+from datetime import date
 from typing import Literal
 
 from fastapi import APIRouter, HTTPException, Query
@@ -23,8 +24,21 @@ async def get_full_trashcans(db: SessionDep):
 async def get_charts(
     db: SessionDep,
     period: Literal["week", "month", "year"] = Query("week"),
+    start_date: date | None = Query(None),
+    end_date: date | None = Query(None),
 ):
-    result = await service.get_stats_charts(db, period)
+    if (start_date is None) != (end_date is None):
+        raise HTTPException(
+            status_code=400,
+            detail="start_date and end_date must be provided together",
+        )
+    if start_date and end_date and start_date > end_date:
+        raise HTTPException(
+            status_code=400,
+            detail="start_date must be earlier than or equal to end_date",
+        )
+
+    result = await service.get_stats_charts(db, period, start_date, end_date)
     return result
 
 @dashboard.get("/trashcans/error")

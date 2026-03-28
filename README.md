@@ -29,8 +29,8 @@ DB_PORT=3306
 DB_NAME=yolo_trash
 APP_HOST=0.0.0.0
 APP_PORT=8000
-ALLOWED_ORIGINS=http://localhost:5173,http://localhost:5174,http://127.0.0.1:5173,http://127.0.0.1:5174
-IMAGE_PATH=C:\smart_trashcan
+ALLOWED_ORIGINS=http://localhost:5173
+IMAGE_PATH=
 WASTE_TYPE_1=MetalCan
 WASTE_TYPE_2=PetBottle
 WASTE_TYPE_3=Plastic
@@ -41,9 +41,8 @@ CLASS_ID_TO_WASTE_TYPE_ID=0:1,1:2,2:3,3:4
 - `DB_USER`, `DB_PW`, `DB_IP`, `DB_PORT`, `DB_NAME`: DB 접속 정보
 - `APP_HOST`: FastAPI 서버 실행 호스트
 - `APP_PORT`: FastAPI 서버 실행 포트
-- `ALLOWED_ORIGINS`: CORS 허용 프론트 주소 목록
+- `ALLOWED_ORIGINS`: CORS 허용 프론트 주소
 - `IMAGE_PATH`: 디텍션 업로드 이미지를 저장할 상위 디렉터리 경로
-- 여러 주소를 허용할 경우 `,`로 구분합니다.
 - `WASTE_TYPE_{id}`: `wastetype` 테이블에 동기화할 쓰레기 타입 이름
 - `CLASS_ID_TO_WASTE_TYPE_ID`: YOLO `class_id`와 `waste_type_id`를 직접 매핑하는 선택 설정
 - `WASTE_TYPE_5=GlassBottle`처럼 새 타입을 추가하면 서버 시작 시 자동 반영됩니다.
@@ -56,10 +55,8 @@ CLASS_ID_TO_WASTE_TYPE_ID=0:1,1:2,2:3,3:4
 서버 시작 시 아래 순서로 초기화가 진행됩니다.
 
 1. `SQLModel.metadata.create_all()`로 전체 테이블 생성 확인
-2. `wastetype` 테이블에 `is_active` 컬럼 존재 여부 확인
-3. 컬럼이 없으면 자동 추가
-4. `.env`의 `WASTE_TYPE_{id}` 설정 기준으로 `wastetype` 동기화
-5. `.env`에 있는 타입은 활성화, 없는 기존 타입은 비활성화
+2. `.env`의 `WASTE_TYPE_{id}` 설정 기준으로 `wastetype` 동기화
+3. `.env`에 있는 타입은 활성화, 없는 기존 타입은 비활성화
 
 즉 startup이 정상 완료되어야:
 - 테이블 구조 보정
@@ -72,7 +69,7 @@ CLASS_ID_TO_WASTE_TYPE_ID=0:1,1:2,2:3,3:4
 
 - 허용할 프론트 주소는 `.env`의 `ALLOWED_ORIGINS`에서 관리합니다.
 - 현재 프로젝트는 로그인/세션 인증을 사용하지 않으므로 `allow_credentials=False`로 설정합니다.
-- 로컬 개발용 포트가 추가되면 `ALLOWED_ORIGINS`에 주소를 추가하면 됩니다.
+- 현재 코드는 `ALLOWED_ORIGINS` 한 개 값을 리스트로 감싸서 사용합니다.
 
 ## 목데이터
 - 에지 모델이 보내는 `camera_id`와 동일한 `trashcan_id`를 가진 쓰레기통 데이터가 필요합니다.
@@ -152,15 +149,17 @@ CLASS_ID_TO_WASTE_TYPE_ID=0:1,1:2,2:3,3:4
 - 실제 저장 경로의 상위 디렉터리는 `.env`의 `IMAGE_PATH`를 사용합니다.
 - DB의 `image_path`에는 상대 경로 형식인 `detect_img/<파일명>`이 저장됩니다.
 - 최종 저장 경로는 `IMAGE_PATH + detect_img/<파일명>` 조합으로 결정됩니다.
-- 저장 파일명은 `{trashcan_id}_{detection_id}_{detected_at}` 형식을 사용합니다.
-- 파일명의 시간값은 파일명으로 안전하게 쓰기 위해 `YYYYMMDD_HHMMSS` 형식으로 저장됩니다.
+- `IMAGE_PATH`를 NULL처럼 상대 경로로 두면 프로젝트 폴더 기준으로 저장됩니다.
+- 저장 파일명은 `{trashcan_id}_{detection_id}_{detected_at}_{uuid}` 형식을 사용합니다.
+- 시간값은 파일명으로 안전하게 쓰기 위해 `YYYYMMDD_HHMMSS_mmm` 형식으로 저장됩니다.
+- 마지막에는 중복 방지를 위한 8자리 UUID가 추가됩니다.
 
 예시:
 
 ```text
-IMAGE_PATH=C:\smart_trashcan
-DB image_path=detect_img/1_296_20260327_141424.jpg
-실제 저장 경로=C:\smart_trashcan\detect_img\1_296_20260327_141424.jpg
+IMAGE_PATH=
+DB image_path=detect_img/1_296_20260327_141424_123_a1b2c3d4.jpg
+실제 저장 경로=./프로젝트폴더/detect_img/1_296_20260327_141424_123_a1b2c3d4.jpg
 ```
 
 ## 에러 로그
@@ -194,6 +193,40 @@ DB image_path=detect_img/1_296_20260327_141424.jpg
 - 비활성 타입은 기존 탐지 이력을 위해 DB에 남아 있을 수 있지만, 대시보드 총계/차트 집계에서는 제외됩니다.
 - 새 탐지 저장도 활성 타입만 반영됩니다.
 
+## 포화도(`fill_rate`) 계산 기준
+
+- 포화도는 `current_volume / trashcan_capacity * 100` 방식으로 계산합니다.
+- `current_volume`은 디텍션 수신 시 감지된 객체 수만큼 누적됩니다.
+- 내부 계산값은 100%를 넘을 수 있지만, API 응답으로 내려주는 `fill_rate` 값은 최대 `100.0`으로 제한합니다.
+
 ## 쓰레기통 등록 주의사항
 
 쓰레기통 등록 시 `server_url`로 연결 테스트를 수행합니다. 연결이 실패하면 등록이 중단됩니다.
+
+### 쓰레기통 수거 기능 (사용 위치 미결정)
+#라우터
+@페이지명.put("/{trashcan_id}/collect")
+async def collect_trashcan(trashcan_id: int, db: SessionDep):
+  result = await service.collect_trashcan(trashcan_id, db)
+  return result
+#서비스
+async def collect_trashcan(self, trashcan_id: int, db:SessionDep)
+  stmt = select(Trashcan).where(Trashcan.trshcan_id == trashcan_id)
+  target = (await db.execute(stmt)).scalar_noe_or_none()
+
+  if not target or target.is_deleted:
+    return {
+      "collected": False,
+      "massage": "Trashcan not found or deleted"
+    }
+  
+  target.current_volume = 0
+  await db.commit()
+  await db.refresh(target)
+
+  return {
+    "collected": True,
+    "trashcan_id": target.trashcan_id,
+    "current_volume": target.current_volume,
+    "message": "Trashcan collected successfully"
+  }

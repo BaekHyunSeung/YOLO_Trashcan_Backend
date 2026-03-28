@@ -11,6 +11,9 @@ class DashboardService:
     def __init__(self):
         pass
 
+    def _cap_fill_rate(self, value: float | None) -> float:
+        return round(min(value or 0.0, 100.0), 2)
+
     async def _ensure_trashcan_exists(self, trashcan_id: int, db: SessionDep) -> bool:
         stmt = (
             select(Trashcan.trashcan_id)
@@ -86,25 +89,36 @@ class DashboardService:
             {
                 "trashcan_id": row.trashcan_id,
                 "trashcan_name": row.trashcan_name,
-                "fill_rate": round(float(row.fill_rate or 0), 2),
+                "fill_rate": self._cap_fill_rate(row.fill_rate),
             }
             for row in rows
         ]
 
-    async def get_stats_charts(self, db: SessionDep, period: str):
+    async def get_stats_charts(
+        self,
+        db: SessionDep,
+        period: str,
+        start_date: date | None = None,
+        end_date: date | None = None,
+    ):
         today = date.today()
-        if period == "month":
-            start_date = date(today.year, today.month, 1)
-        elif period == "year":
-            start_date = date(today.year, 1, 1)
+        selected_period = period
+        if start_date and end_date:
+            selected_period = "custom"
         else:
-            start_date = today - timedelta(days=today.weekday())
+            end_date = today
+            if period == "month":
+                start_date = date(today.year, today.month, 1)
+            elif period == "year":
+                start_date = date(today.year, 1, 1)
+            else:
+                start_date = today - timedelta(days=today.weekday())
 
         total_stmt = (
             select(func.coalesce(func.sum(DailyStats.detection_count), 0))
             .join(WasteType, WasteType.waste_type_id == DailyStats.waste_type_id)
             .where(DailyStats.stats_date >= start_date)
-            .where(DailyStats.stats_date <= today)
+            .where(DailyStats.stats_date <= end_date)
             .where(WasteType.is_active == True)
         )
         total_count = (await db.execute(total_stmt)).scalar() or 0
@@ -116,7 +130,7 @@ class DashboardService:
             )
             .join(WasteType, WasteType.waste_type_id == DailyStats.waste_type_id)
             .where(DailyStats.stats_date >= start_date)
-            .where(DailyStats.stats_date <= today)
+            .where(DailyStats.stats_date <= end_date)
             .where(WasteType.is_active == True)
             .group_by(WasteType.type_name)
             .order_by(WasteType.type_name.asc())
@@ -138,7 +152,7 @@ class DashboardService:
             )
             .join(WasteType, WasteType.waste_type_id == DailyStats.waste_type_id)
             .where(DailyStats.stats_date >= start_date)
-            .where(DailyStats.stats_date <= today)
+            .where(DailyStats.stats_date <= end_date)
             .where(WasteType.is_active == True)
             .group_by(DailyStats.trashcan_city)
             .order_by(DailyStats.trashcan_city.asc())
@@ -150,9 +164,9 @@ class DashboardService:
             items_by_city[key] = int(row.city_count or 0)
 
         return {
-            "period": period,
+            "period": selected_period,
             "start_date": start_date,
-            "end_date": today,
+            "end_date": end_date,
             "total_count": int(total_count),
             "items_by_type": items_by_type,
             "items_by_city": items_by_city,
