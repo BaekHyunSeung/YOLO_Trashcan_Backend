@@ -1,13 +1,13 @@
 import os
 from pathlib import Path
 
-from service.trashcan_status_utils import mark_offline_if_stale
+from utils.trashcan_status_utils import mark_offline_if_stale
 
 from sqlmodel import select
 from sqlalchemy import func
 from db.entity import Trashcan, Detection, DetectionDetail, WasteType
 from db.db import SessionDep
-from service.waste_type_config import get_waste_type_names
+from utils.waste_type_config import get_waste_type_names
 
 
 class TrashcanDetail:
@@ -15,8 +15,26 @@ class TrashcanDetail:
         pass
 
     def _get_image_root_path(self) -> Path:
-        configured_path = os.getenv("IMAGE_PATH")
+        configured_path = os.getenv("IMAGE_PATH", ".")
         return Path(configured_path.strip().strip("\""))
+
+    def _resolve_detection_image_path(self, relative_path: str | None) -> Path | None:
+        if not relative_path:
+            return None
+
+        image_root = self._get_image_root_path().resolve()
+        absolute_path = (image_root / relative_path).resolve()
+
+        try:
+            if os.path.commonpath([str(image_root), str(absolute_path)]) != str(image_root):
+                return None
+        except ValueError:
+            return None
+
+        if not absolute_path.is_file():
+            return None
+
+        return absolute_path
 
     async def get_trashcans_detail(self, trashcan_id: int, db: SessionDep):
         await mark_offline_if_stale(db, minutes=5)
@@ -192,11 +210,8 @@ class TrashcanDetail:
             .where(Trashcan.is_deleted == False)
         )
         relative_path = (await db.execute(stmt)).scalar_one_or_none()
-        if not relative_path:
-            return None
+        return self._resolve_detection_image_path(relative_path)
 
-        absolute_path = self._get_image_root_path() / relative_path
-        if not absolute_path.is_file():
-            return None
-
-        return absolute_path
+    def get_detection_image_by_relative_path(self, image_name: str) -> Path | None:
+        relative_path = (Path("detect_img") / image_name).as_posix()
+        return self._resolve_detection_image_path(relative_path)

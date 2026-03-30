@@ -30,12 +30,12 @@ async def get_charts(
     if (start_date is None) != (end_date is None):
         raise HTTPException(
             status_code=400,
-            detail="start_date and end_date must be provided together",
+            detail="start_date 와 end_date 모두 입력해야합니다다.",
         )
     if start_date and end_date and start_date > end_date:
         raise HTTPException(
             status_code=400,
-            detail="start_date must be earlier than or equal to end_date",
+            detail="start_date는 end_date보다 이전이어야 합니다.",
         )
 
     result = await service.get_stats_charts(db, period, start_date, end_date)

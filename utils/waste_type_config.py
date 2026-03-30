@@ -8,6 +8,7 @@ from sqlmodel.ext.asyncio.session import AsyncSession
 
 from db.entity import WasteType
 
+#기본 설정(환경 변수 없는 경우)
 DEFAULT_WASTE_TYPES = {
     1: "MetalCan",
     2: "PetBottle",
@@ -15,10 +16,13 @@ DEFAULT_WASTE_TYPES = {
     4: "Styrofoam",
 }
 
+#쓰레기타입 환경 변수 패턴
 WASTE_TYPE_KEY_PATTERN = re.compile(r"^WASTE_TYPE_(\d+)$")
 
 
+#쓰레기타입 설정 조회
 def get_waste_type_config() -> dict[int, str]:
+    #설정된 쓰레기타입 목록
     configured: dict[int, str] = {}
 
     for key, value in os.environ.items():
@@ -69,7 +73,7 @@ def get_class_id_to_type_name(class_id: int) -> str | None:
         return None
     return waste_types.get(waste_type_id)
 
-
+#쓰레기 타입 enum 조회
 def get_waste_type_query_enum() -> type[Enum]:
     return Enum(
         "WasteTypeQueryEnum",
@@ -80,7 +84,7 @@ def get_waste_type_query_enum() -> type[Enum]:
         type=str,
     )
 
-
+#쓰레기타입 is_active 컬럼 추가(나중에 삭제제)
 async def ensure_waste_type_schema(engine) -> None:
     async with engine.begin() as conn:
         result = await conn.exec_driver_sql(
@@ -92,14 +96,15 @@ async def ensure_waste_type_schema(engine) -> None:
                 "ALTER TABLE wastetype ADD COLUMN is_active BOOLEAN NOT NULL DEFAULT 1"
             )
 
-
+#쓰레기타입 동기화
 async def sync_waste_types(engine) -> None:
     async_session_factory = sessionmaker(
         engine, class_=AsyncSession, expire_on_commit=False
     )
-
+    #쓰레기타입 설정 조회
     async with async_session_factory() as session:
         configured_types = get_waste_type_config()
+        #쓰레기타입 조회
         existing_rows = (
             await session.execute(select(WasteType).order_by(WasteType.waste_type_id.asc()))
         ).scalars().all()

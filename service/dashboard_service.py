@@ -3,8 +3,8 @@ from datetime import date, timedelta, datetime
 from sqlmodel import select
 from sqlalchemy import case, func, desc, exists
 from db.entity import DetectionDetail, WasteType, Trashcan, DailyStats, TrashcanErrorLog, Detection
-from service.trashcan_status_utils import mark_offline_if_stale
-from service.waste_type_config import get_waste_type_names
+from utils.trashcan_status_utils import mark_offline_if_stale
+from utils.waste_type_config import get_waste_type_names
 from db.db import SessionDep
 
 class DashboardService:

@@ -8,7 +8,7 @@ from db.db import SessionDep
 from db.entity import Detection, DetectionDetail, DailyStats, Trashcan, WasteType, TrashcanErrorLog
 from models.request import DetectionCreate, DetectionObject, BBox
 from fastapi import HTTPException
-from service.waste_type_config import get_class_id_to_type_name
+from utils.waste_type_config import get_class_id_to_type_name
 
 class DetectionService:
     IMAGE_RELATIVE_DIR = "detect_img"

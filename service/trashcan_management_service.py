@@ -6,7 +6,7 @@ from db.entity import Trashcan, Detection
 from db.db import SessionDep
 from models.request import TrashcanModify
 from models.request import TrashcanCreate
-from service.connection_utils import ping_server
+from utils.connection_utils import ping_server
 
 class TrashcanManagementService:
     def __init__(self):

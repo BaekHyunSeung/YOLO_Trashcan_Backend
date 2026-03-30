@@ -2,7 +2,7 @@ from sqlmodel import select
 from sqlalchemy import func
 from db.entity import Trashcan, Detection
 from db.db import SessionDep
-from service.trashcan_status_utils import mark_offline_if_stale
+from utils.trashcan_status_utils import mark_offline_if_stale
 
 class TrashcanList:
     def __init__(self):

@@ -3,7 +3,7 @@ from models.request import TrashcanModify
 from models.request import TrashcanCreate
 from db.db import SessionDep
 from service.trashcan_management_service import TrashcanManagementService
-from service.connection_utils import check_trashcan_connection
+from utils.connection_utils import check_trashcan_connection
 
 management = APIRouter(prefix="/management")
 service = TrashcanManagementService()
