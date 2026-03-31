@@ -38,18 +38,6 @@ async def get_trashcan_waste_detail(
     return result
 
 
-@trashcans_detail.get("/trashcans_detail/{trashcan_id}/waste-detail/{detection_id}")
-async def get_trashcan_waste_image(
-    trashcan_id: int,
-    detection_id: int,
-    db: SessionDep,
-):
-    image_path = await service.get_detection_image_path(trashcan_id, detection_id, db)
-    if image_path is None:
-        raise HTTPException(status_code=404, detail="Image not found")
-    return FileResponse(image_path)
-
-
 @trashcans_detail.get("/detect_img/{image_name:path}")
 async def get_trashcan_waste_image_by_path(image_name: str):
     image_path = service.get_detection_image_by_relative_path(image_name)

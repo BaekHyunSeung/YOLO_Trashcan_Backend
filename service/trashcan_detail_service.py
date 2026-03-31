@@ -196,22 +196,6 @@ class TrashcanDetail:
             "items_by_type": items_by_type,
         }
 
-    async def get_detection_image_path(
-        self,
-        trashcan_id: int,
-        detection_id: int,
-        db: SessionDep,
-    ) -> Path | None:
-        stmt = (
-            select(Detection.image_path)
-            .join(Trashcan, Trashcan.trashcan_id == Detection.trashcan_id)
-            .where(Detection.trashcan_id == trashcan_id)
-            .where(Detection.detection_id == detection_id)
-            .where(Trashcan.is_deleted == False)
-        )
-        relative_path = (await db.execute(stmt)).scalar_one_or_none()
-        return self._resolve_detection_image_path(relative_path)
-
     def get_detection_image_by_relative_path(self, image_name: str) -> Path | None:
         relative_path = (Path("detect_img") / image_name).as_posix()
         return self._resolve_detection_image_path(relative_path)
