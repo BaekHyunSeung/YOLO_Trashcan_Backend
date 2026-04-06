@@ -3,11 +3,39 @@
 쓰레기통/대시보드/탐지 수신용 백엔드 서버입니다.
 
 ### 서버 사용 초기 환경 구성
+## 가상환경 생성
+
+```bash
+python -m venv .venv
+```
+
+## 가상환경 활성화
+
+Windows PowerShell:
+
+```powershell
+.venv\Scripts\Activate.ps1
+```
+
+Windows CMD:
+
+```bat
+.venv\Scripts\activate.bat
+```
+
+macOS / Linux:
+
+```bash
+source .venv/bin/activate
+```
+
 ## 패키지 설치
 
 ```bash
 pip install -r requirements.txt
 ```
+
+가상환경이 활성화된 상태에서 패키지를 설치하세요.
 
 ## 서버 실행
 
@@ -202,31 +230,3 @@ DB image_path=detect_img/1_296_20260327_141424_123_a1b2c3d4.jpg
 ## 쓰레기통 등록 주의사항
 
 쓰레기통 등록 시 `server_url`로 연결 테스트를 수행합니다. 연결이 실패하면 등록이 중단됩니다.
-
-### 쓰레기통 수거 기능 (사용 위치 미결정)
-#라우터
-@페이지명.put("/{trashcan_id}/collect")
-async def collect_trashcan(trashcan_id: int, db: SessionDep):
-  result = await service.collect_trashcan(trashcan_id, db)
-  return result
-#서비스
-async def collect_trashcan(self, trashcan_id: int, db:SessionDep)
-  stmt = select(Trashcan).where(Trashcan.trshcan_id == trashcan_id)
-  target = (await db.execute(stmt)).scalar_noe_or_none()
-
-  if not target or target.is_deleted:
-    return {
-      "collected": False,
-      "massage": "Trashcan not found or deleted"
-    }
-  
-  target.current_volume = 0
-  await db.commit()
-  await db.refresh(target)
-
-  return {
-    "collected": True,
-    "trashcan_id": target.trashcan_id,
-    "current_volume": target.current_volume,
-    "message": "Trashcan collected successfully"
-  }

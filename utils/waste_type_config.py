@@ -84,7 +84,7 @@ def get_waste_type_query_enum() -> type[Enum]:
         type=str,
     )
 
-#쓰레기타입 is_active 컬럼 추가(나중에 삭제제)
+#쓰레기타입 is_active 컬럼 추가(나중에 삭제)
 async def ensure_waste_type_schema(engine) -> None:
     async with engine.begin() as conn:
         result = await conn.exec_driver_sql(
