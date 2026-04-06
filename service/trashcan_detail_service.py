@@ -197,5 +197,13 @@ class TrashcanDetail:
         }
 
     def get_detection_image_by_relative_path(self, image_name: str) -> Path | None:
-        relative_path = (Path("detect_img") / image_name).as_posix()
+        normalized_path = Path(image_name.strip().lstrip("/\\")).as_posix()
+        if not normalized_path or normalized_path == ".":
+            return None
+
+        if normalized_path == "detect_img" or normalized_path.startswith("detect_img/"):
+            relative_path = normalized_path
+        else:
+            relative_path = (Path("detect_img") / normalized_path).as_posix()
+
         return self._resolve_detection_image_path(relative_path)
