@@ -124,4 +124,22 @@ class TrashcanManagementService:
             for row in rows
         ]
 
-        
+    async def collect_trashcan(self, trashcan_id: int, db:SessionDep):
+        stmt = select(Trashcan).where(Trashcan.trashcan_id == trashcan_id)
+        target = (await db.execute(stmt)).scalar_one_or_none()
+
+        if not target or target.is_deleted:
+            return {
+            "collected": False,
+            "message": "Trashcan not found or deleted",
+        }
+
+        target.current_volume = 0
+        await db.commit()
+        await db.refresh(target)
+        return {
+            "collected": True,
+            "trashcan_id": target.trashcan_id,
+            "current_volume": target.current_volume,
+            "message": "Trashcan collected successfully",
+        }

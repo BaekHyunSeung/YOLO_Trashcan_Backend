@@ -1,20 +1,26 @@
 # API 문서
 
-### 공통
+## 공통
 - Base URL: `http://<APP_HOST>:<APP_PORT>`
-- 응답 형식: JSON
+- 기본 응답 형식: JSON
 - 시간 포맷: ISO 8601
-- 서버 실행 및 CORS 허용 주소는 `.env` 기준으로 결정됩니다.
-- 에러 형식
+- 서버 실행 주소와 CORS 허용 주소는 `.env` 기준으로 결정됩니다.
+- 이미지 조회 API는 JSON이 아닌 파일 바이너리를 반환합니다.
+
+에러 응답 기본 형식:
 ```json
 { "detail": "에러 메시지" }
 ```
 
-### 에러 코드
-- `400` 잘못된 요청
-- `404` 리소스 없음
-- `422` 파라미터 오류
-- `500` 서버 오류
+자주 나오는 실패 코드:
+- `400`: 직접 검증하는 잘못된 요청
+- `404`: 조회 대상 없음
+- `422`: FastAPI/Pydantic 검증 실패
+- `500`: 처리 중 예외
+
+주의:
+- 일부 관리 API는 실패 시 HTTP 에러를 던지지 않고, `200 OK`와 함께 `created: false`, `updated: false` 같은 결과 JSON을 반환합니다.
+- 쓰레기통 상세/대시보드 조회 계열은 없는 대상을 조회하면 `404`를 반환하는 경우가 있습니다.
 
 ---
 
@@ -22,8 +28,9 @@
 
 ### 전체 탐지 요약
 - `GET /dashboard/detections`
-- `is_active=True`인 쓰레기 타입만 집계합니다.
-Response:
+- 활성(`is_active=True`) 쓰레기 타입만 집계합니다.
+
+성공 응답:
 ```json
 {
   "total_objects": 120,
@@ -37,58 +44,73 @@ Response:
 }
 ```
 
+실패 경우:
+- `500`: DB 조회 등 서버 내부 오류
+
 ### 수거 필요 쓰레기통
 - `GET /dashboard/trashcans/full`
-- `fill_rate`는 응답 시 최대 `100.0`으로 제한됩니다.
-Response:
+- `fill_rate`는 `current_volume / trashcan_capacity * 100`으로 계산하고, 응답에서는 최대 `100.0`으로 제한합니다.
+
+성공 응답:
 ```json
 [
-  { "trashcan_id": 1, "trashcan_name": "A", "fill_rate": 95.00 }
+  {
+    "trashcan_id": 1,
+    "trashcan_name": "A",
+    "fill_rate": 95.0
+  }
 ]
 ```
 
+실패 경우:
+- `500`: DB 조회 등 서버 내부 오류
+
 ### 통계 차트
-- `GET /dashboard/charts?period=week|month|year`
-- `period`: `week`, `month`, `year` 중 하나
-- `start_date`, `end_date`: 자유 기간 조회용 날짜 (`YYYY-MM-DD`), 둘 다 함께 보내야 합니다.
-- `start_date`, `end_date`가 있으면 해당 기간을 우선 사용하고 `period`는 무시됩니다.
-- `is_active=True`인 쓰레기 타입만 집계합니다.
-Response:
-```json
-{
-  "period": "week",
-  "start_date": "2026-02-03",
-  "end_date": "2026-02-09",
-  "total_count": 120,
-  "items_by_type": { "MetalCan": 30 },
-  "items_by_city": { "서울": 60 }
-}
-```
-자유 기간 조회 예시:
+- `GET /dashboard/charts`
+- Query:
+  - `period`: `week | month | year` (기본 `week`)
+  - `start_date`: `YYYY-MM-DD` 형식, 자유 기간 조회 시작일
+  - `end_date`: `YYYY-MM-DD` 형식, 자유 기간 조회 종료일
+- `start_date`, `end_date`를 둘 다 보내면 자유 기간 조회로 처리되고 `period`는 무시됩니다.
+- 활성(`is_active=True`) 쓰레기 타입만 집계합니다.
+
+요청 예시:
 ```text
+/dashboard/charts?period=week
 /dashboard/charts?start_date=2026-03-01&end_date=2026-03-31
 ```
-자유 기간 조회 응답 예시:
+
+성공 응답:
 ```json
 {
   "period": "custom",
   "start_date": "2026-03-01",
   "end_date": "2026-03-31",
   "total_count": 120,
-  "items_by_type": { "MetalCan": 30 },
-  "items_by_city": { "서울": 60 }
+  "items_by_type": {
+    "MetalCan": 30,
+    "PetBottle": 25
+  },
+  "items_by_city": {
+    "서울": 60,
+    "부산": 40
+  }
 }
 ```
+
 실패 경우:
 - `400`: `start_date`, `end_date` 중 하나만 보낸 경우
 - `400`: `start_date > end_date`
+- `422`: `period`가 `week|month|year` 외의 값인 경우
 - `422`: 날짜 형식이 잘못된 경우
+- `500`: DB 조회 등 서버 내부 오류
 
 ### 미연결/에러 쓰레기통 목록
 - `GET /dashboard/trashcans/error`
- - 현재 미연결 상태이거나 최근 1분 내 에러 로그가 있는 쓰레기통을 반환합니다.
- - `last_connected_at` 기준 5분 이상 수신/테스트가 없으면 `is_online`이 False로 처리됩니다.
-Response:
+- 현재 오프라인 상태이거나 최근 1분 내 에러 로그가 있는 쓰레기통 목록을 반환합니다.
+- `last_connected_at` 기준 5분 이상 수신/테스트가 없으면 `is_online=False`로 갱신될 수 있습니다.
+
+성공 응답:
 ```json
 [
   {
@@ -100,12 +122,16 @@ Response:
 ]
 ```
 
+실패 경우:
+- `500`: DB 조회 등 서버 내부 오류
+
 ### 쓰레기통 에러 로그 조회
 - `GET /dashboard/trashcans/error/{trashcan_id}?limit=50`
- - 디텍션 수신(`/detect/result`) 중 에러 발생 시 자동 저장된 로그를 조회합니다.
- - 동일 에러가 1분 내 반복되면 `repeat_count`만 증가합니다.
- - `limit`: 1~200 (기본 50)
-Response:
+- 디텍션 수신(`/detect/result`) 중 저장된 에러 로그를 조회합니다.
+- 같은 에러가 1분 이내 반복되면 새 로그 대신 `repeat_count`가 증가합니다.
+- `limit`: `1~200`, 기본 `50`
+
+성공 응답:
 ```json
 {
   "trashcan_id": 1,
@@ -124,15 +150,22 @@ Response:
 }
 ```
 
+실패 경우:
+- `404`: 존재하지 않거나 삭제된 쓰레기통인 경우
+- `422`: `trashcan_id`가 정수가 아닌 경우
+- `422`: `limit`가 `1~200` 범위를 벗어난 경우
+- `500`: DB 조회 등 서버 내부 오류
+
 ---
 
 ## 쓰레기통 목록
 
 ### 목록 조회
 - `GET /trashcans_list/trashcans?offset=0&limit=20`
-- 수거량 많은 순으로 기본 정렬
-- `fill_rate`는 `current_volume / trashcan_capacity * 100`으로 계산하며, 응답 시 최대 `100.0`으로 제한됩니다.
-Response:
+- 삭제되지 않은 쓰레기통만 조회합니다.
+- `fill_rate`는 응답 시 최대 `100.0`으로 제한됩니다.
+
+성공 응답:
 ```json
 {
   "total": 100,
@@ -142,32 +175,28 @@ Response:
       "trashcan_name": "A",
       "address_detail": "서울 강남구 ...",
       "is_online": true,
-      "total_collected": 120,
-      "fill_rate": 60.00
+      "fill_rate": 60.0,
+      "total_collected": 120
     }
   ]
 }
 ```
 
+실패 경우:
+- `422`: `offset`, `limit`가 정수가 아닌 경우
+- `500`: DB 조회 등 서버 내부 오류
+
 ### 정렬/검색
-- `GET /trashcans_list/query?sort_by=collected|free_capacity|is_online&order=asc|desc&city=&name=&offset=0&limit=20`
-Request Params:
-```text
-sort_by: collected | free_capacity | is_online (기본 collected)
-order: asc | desc (기본 desc)
-city: 도시명 부분 일치 필터 (선택)
-name: 쓰레기통 이름 부분 일치 필터 (선택)
-offset: 페이지 시작 (기본 0)
-limit: 페이지 크기 (기본 20)
-```
-sort_by 설명:
-```
-collected: 수거된 총 객체 수 기준 정렬
-free_capacity: 여유 용량(= capacity - current_volume) 기준 정렬
-is_online: 연결 상태 기준 정렬 (false < true)
-```
-- `fill_rate`는 응답 시 최대 `100.0`으로 제한됩니다.
-Response:
+- `GET /trashcans_list/query`
+- Query:
+  - `sort_by`: `collected | free_capacity | is_online` (기본 `collected`)
+  - `order`: `asc | desc` (기본 `desc`)
+  - `city`: 도시명 부분 일치 필터
+  - `name`: 쓰레기통 이름 부분 일치 필터
+  - `offset`: 시작 위치 (기본 `0`)
+  - `limit`: 조회 개수 (기본 `20`)
+
+성공 응답:
 ```json
 {
   "total": 100,
@@ -179,14 +208,17 @@ Response:
       "is_online": true,
       "total_collected": 120,
       "free_capacity": 40,
-      "fill_rate": 60.00
+      "fill_rate": 60.0
     }
   ]
 }
 ```
 
-### 검색
-- `query` API에 `city`, `name` 파라미터를 함께 사용합니다.
+실패 경우:
+- `422`: `sort_by`가 허용값이 아닌 경우
+- `422`: `order`가 허용값이 아닌 경우
+- `422`: `offset`, `limit`가 정수가 아닌 경우
+- `500`: DB 조회 등 서버 내부 오류
 
 ---
 
@@ -194,7 +226,9 @@ Response:
 
 ### 상세 조회
 - `GET /trashcans_detail/{trashcan_id}`
-Response:
+- 삭제되지 않은 쓰레기통만 조회합니다.
+
+성공 응답:
 ```json
 {
   "trashcan_id": 1,
@@ -218,11 +252,18 @@ Response:
 }
 ```
 
+실패 경우:
+- `404`: 존재하지 않거나 삭제된 쓰레기통인 경우
+- `422`: `trashcan_id`가 정수가 아닌 경우
+- `500`: DB 조회 등 서버 내부 오류
+
 ### 연결 테스트
 - `GET /trashcans_detail/{trashcan_id}/connection-test`
- - `server_url`에 저장된 라즈베리파이 사설 IP로 ping 연결 테스트합니다. (포트/경로 미사용)
- - 성공 시 `is_online`, `last_connected_at`이 갱신됩니다.
-Response:
+- `server_url`에 저장된 장치 주소로 ping 연결 테스트를 수행합니다.
+- 성공 시 `is_online=True`, `last_connected_at=현재시간`으로 갱신됩니다.
+- 실패 시 HTTP 에러가 아니라 상태 JSON을 반환합니다.
+
+성공 응답:
 ```json
 {
   "trashcan_id": 1,
@@ -231,16 +272,37 @@ Response:
 }
 ```
 
+실패 응답 예시:
+```json
+{
+  "trashcan_id": 1,
+  "status": "error",
+  "message": "Failed to connect to server"
+}
+```
+
+실패 경우:
+- `200`: 쓰레기통이 없거나 `server_url`이 없으면 `status: "error"`, `message: "Server URL not found"`
+- `200`: ping 실패 시 `status: "error"`, `message: "Failed to connect to server"`
+- `422`: `trashcan_id`가 정수가 아닌 경우
+- `500`: DB 처리 오류
+
 ### 쓰레기 상세 데이터
 - `GET /trashcans_detail/{trashcan_id}/waste-detail`
 - Query:
-  - `type_name`: 쓰레기 종류 필터, 서버 시작 시 `.env`의 `WASTE_TYPE_{id}` 목록 기준으로 선택값이 생성됨
-  - `offset`: 시작 위치, 기본값 `0`
-  - `limit`: 조회 개수, 기본값 `20`, 최대 `100`
-- 전체 조회 예시: `/trashcans_detail/1/waste-detail?offset=0&limit=20`
-- 종류별 조회 예시: `/trashcans_detail/1/waste-detail?type_name=MetalCan&offset=0&limit=20`
-- `type_name` 선택 목록은 서버 재시작 시점의 `.env` 설정 기준으로 반영됩니다.
-Response:
+  - `type_name`: 선택한 쓰레기 타입 이름
+  - `offset`: 시작 위치, 기본 `0`
+  - `limit`: 조회 개수, 기본 `20`, 최대 `100`
+- `type_name` 선택값은 서버 시작 시 `.env`의 `WASTE_TYPE_{id}` 기준으로 생성됩니다.
+- 응답의 `image_path`는 이미지 조회 API 경로로 그대로 사용할 수 있습니다.
+
+요청 예시:
+```text
+/trashcans_detail/1/waste-detail?offset=0&limit=20
+/trashcans_detail/1/waste-detail?type_name=MetalCan&offset=0&limit=20
+```
+
+성공 응답:
 ```json
 {
   "trashcan_id": 1,
@@ -267,20 +329,34 @@ Response:
 }
 ```
 
-### 쓰레기 상세 이미지 조회
-- `GET /trashcans_detail/{trashcan_id}/waste-detail/{detection_id}`
-- DB에 저장된 `image_path`와 `.env`의 `IMAGE_PATH`를 조합해 실제 이미지 파일을 반환합니다.
-- 파일이 없거나 해당 `detection_id`가 없으면 `404`를 반환합니다.
-- 응답 형식: 이미지 파일 바이너리 (`FileResponse`)
-- 성공 시 `Content-Type`은 이미지 형식에 따라 자동 결정됩니다.
+실패 경우:
+- `404`: 존재하지 않거나 삭제된 쓰레기통인 경우
+- `422`: `trashcan_id`가 정수가 아닌 경우
+- `422`: `type_name`이 허용된 Enum 값이 아닌 경우
+- `422`: `offset < 0`인 경우
+- `422`: `limit < 1` 또는 `limit > 100`인 경우
+- `500`: DB 조회 등 서버 내부 오류
+
+### 이미지 조회
+- `GET /detect_img/{image_name:path}`
+- `waste-detail` 응답의 `image_path` 값을 그대로 사용합니다.
+- 예: `image_path`가 `detect_img/1_100_20260327_141424_123_a1b2c3d4.jpg`이면 요청은 `GET /detect_img/1_100_20260327_141424_123_a1b2c3d4.jpg`
+- 서버는 `.env`의 `IMAGE_PATH`와 경로를 조합해 실제 파일을 반환합니다.
+- 응답 형식은 파일 바이너리(`FileResponse`)입니다.
+
+실패 경우:
+- `404`: 파일이 없거나 허용된 이미지 경로 밖의 파일 접근인 경우
+- `500`: 파일 응답 처리 중 서버 내부 오류
 
 ---
 
 ## 쓰레기통 관리
 
-### 목록
+### 목록 조회
 - `GET /management/trashcans`
-Response:
+- 삭제되지 않은 쓰레기통 목록을 반환합니다.
+
+성공 응답:
 ```json
 [
   {
@@ -292,9 +368,13 @@ Response:
 ]
 ```
 
+실패 경우:
+- `500`: DB 조회 등 서버 내부 오류
+
 ### 삭제된 쓰레기통 목록
 - `GET /management/trashcans/deleted`
-Response:
+
+성공 응답:
 ```json
 [
   {
@@ -306,56 +386,44 @@ Response:
 ]
 ```
 
+실패 경우:
+- `500`: DB 조회 등 서버 내부 오류
+
 ### 상태 확인
 - `GET /management/trashcans/{trashcan_id}/health`
- - `server_url`에 저장된 라즈베리파이 사설 IP로 ping 연결 테스트합니다. (포트/경로 미사용)
- - 성공 시 `is_online`, `last_connected_at`이 갱신됩니다.
-Response:
-```json
-{ "trashcan_id": 1, "status": "ok", "message": "Server is healthy" }
-```
+- `trashcans_detail`의 연결 테스트와 같은 동작입니다.
+- 실패 시 HTTP 에러가 아니라 상태 JSON을 반환합니다.
 
-### 수정
-- `PUT /management/trashcans`
-Request Body:
+성공 응답:
 ```json
 {
   "trashcan_id": 1,
-  "trashcan_name": "A",
-  "trashcan_city": "서울",
-  "address_detail": "서울 강남구 ...",
-  "trashcan_latitude": 37.0,
-  "trashcan_longitude": 127.0
+  "status": "ok",
+  "message": "Server is healthy"
 }
 ```
-Response:
+
+실패 응답 예시:
 ```json
 {
-  "updated": true,
   "trashcan_id": 1,
-  "message": "Trashcan updated successfully"
+  "status": "error",
+  "message": "Server URL not found"
 }
 ```
 
-### 삭제
-- `DELETE /management/trashcans/{trashcan_id}`
-Response:
-```json
-{ "deleted": true, "trashcan_id": 1, "message": "Trashcan deleted successfully" }
-```
-
-### 복구
-- `PUT /management/trashcans/{trashcan_id}/recover`
-Response:
-```json
-{ "recovered": true, "trashcan_id": 1, "message": "Trashcan recovered successfully" }
-```
+실패 경우:
+- `200`: 쓰레기통이 없거나 `server_url`이 없으면 `status: "error"`
+- `200`: ping 실패 시 `status: "error"`
+- `422`: `trashcan_id`가 정수가 아닌 경우
+- `500`: DB 처리 오류
 
 ### 생성
 - `POST /management/trashcans`
- - 등록 전 `server_url`(라즈베리파이 사설 IP)로 ping 연결 테스트를 수행합니다.
- - 실패 시 등록이 중단되고 실패 응답을 반환합니다.
-Request Body:
+- 등록 전 `server_url`로 ping 연결 테스트를 수행합니다.
+- 연결 실패 시 HTTP 에러가 아니라 `created: false` JSON을 반환합니다.
+
+요청 본문:
 ```json
 {
   "trashcan_name": "A",
@@ -367,7 +435,8 @@ Request Body:
   "server_url": "192.168.0.10"
 }
 ```
-Response:
+
+성공 응답:
 ```json
 {
   "created": true,
@@ -375,7 +444,8 @@ Response:
   "message": "Trashcan created successfully"
 }
 ```
-Response (연결 실패):
+
+실패 응답 예시:
 ```json
 {
   "created": false,
@@ -383,13 +453,134 @@ Response (연결 실패):
 }
 ```
 
+실패 경우:
+- `200`: ping 실패 또는 연결 테스트 중 예외 발생 시 `created: false`
+- `422`: 요청 본문 누락/타입 오류
+- `500`: DB 저장 오류
+
+### 수정
+- `PUT /management/trashcans`
+
+요청 본문:
+```json
+{
+  "trashcan_id": 1,
+  "trashcan_name": "A",
+  "trashcan_city": "서울",
+  "address_detail": "서울 강남구 ...",
+  "trashcan_latitude": 37.0,
+  "trashcan_longitude": 127.0
+}
+```
+
+성공 응답:
+```json
+{
+  "updated": true,
+  "trashcan_id": 1,
+  "message": "Trashcan updated successfully"
+}
+```
+
+실패 응답 예시:
+```json
+{
+  "updated": false,
+  "message": "Trashcan not found or deleted"
+}
+```
+
+실패 경우:
+- `200`: 대상이 없거나 삭제된 쓰레기통이면 `updated: false`
+- `422`: 요청 본문 누락/타입 오류
+- `500`: DB 저장 오류
+
+### 삭제
+- `DELETE /management/trashcans/{trashcan_id}`
+
+성공 응답:
+```json
+{
+  "deleted": true,
+  "trashcan_id": 1,
+  "message": "Trashcan deleted successfully"
+}
+```
+
+실패 응답 예시:
+```json
+{
+  "deleted": false,
+  "message": "Trashcan not found or deleted"
+}
+```
+
+실패 경우:
+- `200`: 대상이 없거나 이미 삭제된 경우 `deleted: false`
+- `422`: `trashcan_id`가 정수가 아닌 경우
+- `500`: DB 저장 오류
+
+### 복구
+- `PUT /management/trashcans/{trashcan_id}/recover`
+
+성공 응답:
+```json
+{
+  "recovered": true,
+  "trashcan_id": 1,
+  "message": "Trashcan recovered successfully"
+}
+```
+
+실패 응답 예시:
+```json
+{
+  "recovered": false,
+  "message": "Trashcan not found or not deleted"
+}
+```
+
+실패 경우:
+- `200`: 대상이 없거나 삭제 상태가 아니면 `recovered: false`
+- `422`: `trashcan_id`가 정수가 아닌 경우
+- `500`: DB 저장 오류
+
+### 수거 처리
+- `PUT /management/{trashcan_id}/collect`
+- 해당 쓰레기통의 `current_volume`을 `0`으로 초기화합니다.
+
+성공 응답:
+```json
+{
+  "collected": true,
+  "trashcan_id": 1,
+  "current_volume": 0,
+  "message": "Trashcan collected successfully"
+}
+```
+
+실패 응답 예시:
+```json
+{
+  "collected": false,
+  "message": "Trashcan not found or deleted"
+}
+```
+
+실패 경우:
+- `200`: 대상이 없거나 삭제된 경우 `collected: false`
+- `422`: `trashcan_id`가 정수가 아닌 경우
+- `500`: DB 저장 오류
+
 ---
 
 ## 지도
 
 ### 지도 좌표 조회
 - `GET /map/trashcans`
-Response:
+- 활성/삭제 쓰레기통을 분리해서 반환합니다.
+
+성공 응답:
 ```json
 {
   "active": [
@@ -404,24 +595,27 @@ Response:
 }
 ```
 
+실패 경우:
+- `500`: DB 조회 등 서버 내부 오류
+
 ---
 
 ## 탐지 결과 수신
 
 ### 탐지 결과 업로드
 - `POST /detect/result`
-- 요청: `multipart/form-data`
+- 요청 형식: `multipart/form-data`
+- 필수 필드:
   - `file`: 이미지 파일
   - `metadata`: JSON 문자열
+- `camera_id`는 쓰레기통 식별자로 사용됩니다.
 - `class_id`는 기본적으로 `waste_type_id - 1` 규칙으로 매핑됩니다.
-- 다른 순서를 사용하려면 `.env`의 `CLASS_ID_TO_WASTE_TYPE_ID`를 설정합니다.
-- 업로드된 이미지는 `.env`의 `IMAGE_PATH` 하위 `detect_img/<파일명>` 경로에 저장됩니다.
-- `IMAGE_PATH`를 상대 경로(`storage`)로 설정하면 프로젝트 폴더 기준으로 저장됩니다.
-- 저장 파일명은 `{trashcan_id}_{detection_id}_{detected_at}_{uuid}` 형식을 사용합니다.
-- 시간값은 파일명에 맞게 `YYYYMMDD_HHMMSS_mmm` 형식으로 변환됩니다.
-- 마지막에는 중복 방지를 위한 8자리 UUID가 추가됩니다.
-- DB의 `image_path`에는 상대 경로인 `detect_img/<파일명>`이 저장됩니다.
-Request Body (metadata JSON 예시):
+- 다른 매핑이 필요하면 `.env`의 `CLASS_ID_TO_WASTE_TYPE_ID`를 사용합니다.
+- 업로드 이미지는 `.env`의 `IMAGE_PATH` 아래 `detect_img/<파일명>`으로 저장됩니다.
+- DB의 `image_path`에는 상대 경로 `detect_img/<파일명>`이 저장됩니다.
+- 저장 파일명 형식: `{trashcan_id}_{detection_id}_{YYYYMMDD_HHMMSS_mmm}_{uuid8}{suffix}`
+
+`metadata` JSON 예시:
 ```json
 {
   "camera_id": 1,
@@ -432,5 +626,17 @@ Request Body (metadata JSON 예시):
   "timestamp": "2026-02-09T14:10:00Z"
 }
 ```
-Response: `204 No Content`
-에러 발생 시 해당 쓰레기통 로그가 DB에 자동 저장됩니다.
+
+성공 응답:
+- `204 No Content`
+
+실패 경우:
+- `400`: `camera_id`에 해당하는 쓰레기통을 찾지 못한 경우
+- `422`: `metadata` JSON 파싱/스키마 검증 실패
+- `422`: `file` 또는 `metadata` multipart 필드 누락
+- `422`: `camera_id`, `class_id`, `bbox`, `score` 타입이 잘못된 경우
+- `500`: 이미지 저장/DB 저장 등 서버 내부 예외
+
+에러 로그 저장:
+- `422`, `400`, `500` 계열 실패가 발생하면 가능한 경우 해당 쓰레기통 기준으로 에러 로그가 저장됩니다.
+- `camera_id`는 로그에 함께 저장될 수 있습니다.
