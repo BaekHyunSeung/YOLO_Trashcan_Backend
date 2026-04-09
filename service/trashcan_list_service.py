@@ -5,9 +5,6 @@ from db.db import SessionDep
 from utils.trashcan_status_utils import mark_offline_if_stale
 
 class TrashcanList:
-    def __init__(self):
-        pass
-
     def _cap_fill_rate(self, value: float | None) -> float:
         return round(min(value or 0.0, 100.0), 2)
 

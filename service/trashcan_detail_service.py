@@ -11,9 +11,6 @@ from utils.waste_type_config import get_waste_type_names
 
 
 class TrashcanDetail:
-    def __init__(self):
-        pass
-
     def _get_image_root_path(self) -> Path:
         configured_path = os.getenv("IMAGE_PATH", ".")
         return Path(configured_path.strip().strip("\""))

@@ -3,9 +3,6 @@ from db.entity import Trashcan
 from db.db import SessionDep
 
 class TrashcanMapService:
-    def __init__(self):
-        pass
-
     async def get_trashcans_map(self, db: SessionDep):
         statement = select(
             Trashcan.trashcan_id,

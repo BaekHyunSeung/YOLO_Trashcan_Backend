@@ -156,6 +156,35 @@
 - `422`: `limit`가 `1~200` 범위를 벗어난 경우
 - `500`: DB 조회 등 서버 내부 오류
 
+### 미등록 camera 에러 로그 조회
+- `GET /dashboard/trashcans/error/unregistered?limit=50`
+- `camera_id`는 들어왔지만 DB에서 대응되는 `trashcan_id`를 찾지 못한 에러 로그를 조회합니다.
+- `trashcan_id`는 `null`로 반환됩니다.
+- `limit`: `1~200`, 기본 `50`
+
+성공 응답:
+```json
+{
+  "trashcan_id": null,
+  "logs": [
+    {
+      "trashcan_id": null,
+      "camera_id": 999,
+      "status_code": 400,
+      "message": "알 수 없는 trashcan_id / 받은 camera_id: 999",
+      "occurred_at": "2026-04-01T12:00:00",
+      "last_occurred_at": "2026-04-01T12:00:00",
+      "repeat_count": 1,
+      "created_at": "2026-04-01T12:00:00"
+    }
+  ]
+}
+```
+
+실패 경우:
+- `422`: `limit`가 `1~200` 범위를 벗어난 경우
+- `500`: DB 조회 등 서버 내부 오류
+
 ---
 
 ## 쓰레기통 목록
@@ -638,5 +667,6 @@
 - `500`: 이미지 저장/DB 저장 등 서버 내부 예외
 
 에러 로그 저장:
-- `422`, `400`, `500` 계열 실패가 발생하면 가능한 경우 해당 쓰레기통 기준으로 에러 로그가 저장됩니다.
+- `422`, `400`, `500` 계열 실패가 발생하면 가능한 경우 에러 로그가 DB에 저장됩니다.
 - `camera_id`는 로그에 함께 저장될 수 있습니다.
+- `camera_id`는 들어왔지만 대응되는 `trashcan_id`가 없는 경우, `trashcan_id=null` 상태로 저장됩니다.

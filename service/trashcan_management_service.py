@@ -9,9 +9,6 @@ from models.request import TrashcanCreate
 from utils.connection_utils import ping_server
 
 class TrashcanManagementService:
-    def __init__(self):
-        pass
-
     async def get_trashcans(self, db: SessionDep):
         stmt = (
             select(

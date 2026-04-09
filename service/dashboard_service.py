@@ -8,9 +8,6 @@ from utils.waste_type_config import get_waste_type_names
 from db.db import SessionDep
 
 class DashboardService:
-    def __init__(self):
-        pass
-
     def _cap_fill_rate(self, value: float | None) -> float:
         return round(min(value or 0.0, 100.0), 2)
 
@@ -234,3 +231,29 @@ class DashboardService:
             for row in rows
         ]
         return {"trashcan_id": trashcan_id, "logs": logs}
+
+    async def get_unregistered_trashcan_error_logs(
+        self, limit: int, db: SessionDep
+    ):
+        stmt = (
+            select(TrashcanErrorLog)
+            .where(TrashcanErrorLog.trashcan_id.is_(None))
+            .order_by(desc(TrashcanErrorLog.created_at), desc(TrashcanErrorLog.id))
+        )
+        if limit > 0:
+            stmt = stmt.limit(limit)
+        rows = (await db.execute(stmt)).scalars().all()
+        logs = [
+            {
+                "trashcan_id": row.trashcan_id,
+                "camera_id": row.camera_id,
+                "status_code": row.status_code,
+                "message": row.message,
+                "occurred_at": row.occurred_at,
+                "last_occurred_at": row.last_occurred_at,
+                "repeat_count": row.repeat_count,
+                "created_at": row.created_at,
+            }
+            for row in rows
+        ]
+        return {"trashcan_id": None, "logs": logs}

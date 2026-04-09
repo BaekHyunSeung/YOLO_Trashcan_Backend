@@ -135,15 +135,17 @@ CLASS_ID_TO_WASTE_TYPE_ID=0:1,1:2,2:3,3:4
 │  ├─ trashcan_list_router.py     # 쓰레기통 목록 API
 │  ├─ trashcan_management_router.py # 쓰레기통 관리 API
 │  └─ trashcan_map_router.py      # 지도 API
-└─ service/
-   ├─ dashboard_service.py        # 대시보드 집계/통계 처리
-   ├─ detections_service.py       # 디텍션 저장/매핑 처리
-   ├─ trashcan_detail_service.py  # 쓰레기통 상세/이력 조회
-   ├─ trashcan_list_service.py    # 목록/검색/정렬 처리
-   ├─ trashcan_management_service.py # 관리(생성/수정/삭제) 처리
-   ├─ trashcan_map_service.py     # 지도용 좌표 조회
+├─ service/
+│  ├─ dashboard_service.py        # 대시보드 집계/통계 처리
+│  ├─ detections_service.py       # 디텍션 저장/매핑 처리
+│  ├─ trashcan_detail_service.py  # 쓰레기통 상세/이력 조회
+│  ├─ trashcan_list_service.py    # 목록/검색/정렬 처리
+│  ├─ trashcan_management_service.py # 관리(생성/수정/삭제) 처리
+│  └─ trashcan_map_service.py     # 지도용 좌표 조회
+└─ utils/
    ├─ connection_utils.py         # ping 연결 체크 유틸
-   └─ trashcan_status_utils.py    # 온라인 상태 갱신 유틸
+   ├─ trashcan_status_utils.py    # 온라인 상태 갱신 유틸
+   └─ waste_type_config.py        # 쓰레기 타입 설정/동기화 유틸
 ```
 
 ## 메타데이터 형식
@@ -194,6 +196,7 @@ DB image_path=detect_img/1_296_20260327_141424_123_a1b2c3d4.jpg
 
 - 저장 트리거: 디텍션 수신(`/detect/result`) 처리 중 에러 발생 시 자동 저장
 - 보조 필드: `trashcan_id`를 찾을 수 없는 경우를 위해 로그에 `camera_id`도 함께 저장
+- 미등록 `camera_id` 로그는 `trashcan_id=NULL` 상태로 저장되며 `/dashboard/trashcans/error/unregistered`에서 조회할 수 있습니다.
 - 시간 필드 규칙
   - `occurred_at`: 요청에 값이 있으면 사용, 없거나 파싱 실패면 서버 현재 시간
   - `created_at`: DB에 로그가 저장된 시각
