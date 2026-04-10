@@ -21,7 +21,7 @@ for var in missing:
 
 DATABASE_URL = f"mysql+aiomysql://{DB_USER}:{DB_PW}@{DB_IP}:{DB_PORT}/{DB_NAME}"
 
-engine = create_async_engine(DATABASE_URL, echo=True)
+engine = create_async_engine(DATABASE_URL, echo=False)
 
 async def get_db():
     # sessionmaker에 SQLModel의 AsyncSession 클래스를 전달

@@ -4,21 +4,11 @@ from sqlmodel import select
 from sqlalchemy import case, func, desc, exists
 from db.entity import DetectionDetail, WasteType, Trashcan, DailyStats, TrashcanErrorLog, Detection
 from utils.trashcan_status_utils import mark_offline_if_stale
+from utils.service_helpers import cap_fill_rate, trashcan_pk_exists
 from utils.waste_type_config import get_waste_type_names
 from db.db import SessionDep
 
 class DashboardService:
-    def _cap_fill_rate(self, value: float | None) -> float:
-        return round(min(value or 0.0, 100.0), 2)
-
-    async def _ensure_trashcan_exists(self, trashcan_id: int, db: SessionDep) -> bool:
-        stmt = (
-            select(Trashcan.trashcan_id)
-            .where(Trashcan.trashcan_id == trashcan_id)
-            .where(Trashcan.is_deleted == False)
-        )
-        return (await db.execute(stmt)).first() is not None
-
     async def get_total_detection(self, db: SessionDep):
         total_objects_stmt = (
             select(func.count(DetectionDetail.detail_id))
@@ -86,7 +76,7 @@ class DashboardService:
             {
                 "trashcan_id": row.trashcan_id,
                 "trashcan_name": row.trashcan_name,
-                "fill_rate": self._cap_fill_rate(row.fill_rate),
+                "fill_rate": cap_fill_rate(row.fill_rate),
             }
             for row in rows
         ]
@@ -206,7 +196,8 @@ class DashboardService:
     async def get_trashcan_error_logs(
         self, trashcan_id: int, limit: int, db: SessionDep
     ):
-        if not await self._ensure_trashcan_exists(trashcan_id, db):
+        # 삭제된 쓰레기통(is_deleted)이어도 해당 PK로 쌓인 에러 로그는 조회 가능해야 함
+        if not await trashcan_pk_exists(trashcan_id, db):
             return None
 
         stmt = (

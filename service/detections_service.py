@@ -1,29 +1,66 @@
-import os
+from __future__ import annotations
+
+from collections import Counter
+from typing import Literal
 from uuid import uuid4
 from pathlib import Path
 from datetime import datetime, date, timedelta
 from sqlmodel import select
-from sqlalchemy import desc
+from sqlalchemy import desc, func, update
+from sqlalchemy.dialects.mysql import insert as mysql_insert
 from db.db import SessionDep
 from db.entity import Detection, DetectionDetail, DailyStats, Trashcan, WasteType, TrashcanErrorLog
 from models.request import DetectionCreate, DetectionObject, BBox
 from fastapi import HTTPException
+from utils.detection_intake import (
+    DetectionIntervalGate,
+    load_detection_intake_settings,
+    normalize_detection_score,
+)
+from utils.service_helpers import image_storage_root, trashcan_pk_exists
 from utils.waste_type_config import get_class_id_to_type_name
+
 
 class DetectionService:
     IMAGE_RELATIVE_DIR = "detect_img"
 
-    async def _ensure_trashcan_exists(self, trashcan_id: int, db: SessionDep) -> bool:
-        stmt = (
-            select(Trashcan.trashcan_id)
-            .where(Trashcan.trashcan_id == trashcan_id)
-            .where(Trashcan.is_deleted == False)
-        )
-        return (await db.execute(stmt)).first() is not None
+    def __init__(self) -> None:
+        self._intake = load_detection_intake_settings()
+        self._interval_gate = DetectionIntervalGate(self._intake.min_interval_seconds)
 
-    def _get_image_root_path(self) -> Path:
-        configured_path = os.getenv("IMAGE_PATH", ".")
-        return Path(configured_path.strip().strip("\""))
+    async def should_skip_intake_interval(
+        self, trashcan_id: int | None, camera_id: int
+    ) -> bool:
+        """등록 간격 미달이면 True(본문 무시·204). trashcan 미매핑이면 간격 적용 안 함."""
+        if trashcan_id is None:
+            return False
+        return not await self._interval_gate.claim(camera_id)
+
+    async def _detection_item_to_object(
+        self, d: dict, db: SessionDep
+    ) -> DetectionObject | None:
+        score = normalize_detection_score(d.get("score", 0.0))
+        if score < self._intake.min_confidence:
+            return None
+        class_id = d.get("class_id")
+        bbox = d.get("bbox", [0, 0, 0, 0])
+        type_name = get_class_id_to_type_name(class_id)
+        if type_name is None:
+            return None
+        waste_type_id = await self.get_waste_type_id(type_name, db)
+        if waste_type_id is None:
+            return None
+        return DetectionObject(
+            waste_type_id=waste_type_id,
+            type_name=type_name,
+            confidence=score,
+            box=BBox(
+                x1=bbox[0],
+                y1=bbox[1],
+                x2=bbox[2],
+                y2=bbox[3],
+            ),
+        )
 
     def _build_image_filename(
         self,
@@ -40,7 +77,7 @@ class DetectionService:
 
     def _build_image_paths(self, saved_filename: str) -> tuple[str, str, Path]:
         relative_path = Path(self.IMAGE_RELATIVE_DIR) / saved_filename
-        absolute_path = self._get_image_root_path() / relative_path
+        absolute_path = image_storage_root() / relative_path
         return saved_filename, relative_path.as_posix(), absolute_path
 
     async def save_uploaded_image(
@@ -76,41 +113,31 @@ class DetectionService:
         # camera_id -> trashcan_id 조회
         if trashcan_id is None:
             camera_id = data.get("camera_id")
-            trashcan_id = await self.get_trashcan_id(camera_id, db)
-        if trashcan_id is None:
-            camera_id = data.get("camera_id")
-            raise HTTPException(
-                status_code=400,
-                detail=f"알 수 없는 trashcan_id / 받은 camera_id: {camera_id}",
-            )
+            status, tid = await self.lookup_trashcan_for_detection(camera_id, db)
+            if status == "missing":
+                raise HTTPException(
+                    status_code=400,
+                    detail=f"등록되지 않은 쓰레기통입니다. camera_id={camera_id}",
+                )
+            if status == "deleted":
+                raise HTTPException(
+                    status_code=400,
+                    detail=f"삭제된 쓰레기통입니다. trashcan_id={tid}, camera_id={camera_id}",
+                )
+            trashcan_id = tid
         await self.update_trashcan_online(trashcan_id, db)
 
-        objects = []
-        for d in data.get("detections", []):
-            class_id = d.get("class_id")
-            bbox = d.get("bbox", [0,0,0,0])
-            score = d.get("score", 0.0)
-
-            type_name = get_class_id_to_type_name(class_id)
-            if type_name is None:
+        objects: list[DetectionObject] = []
+        for raw in data.get("detections", []):
+            if not isinstance(raw, dict):
                 continue
+            obj = await self._detection_item_to_object(raw, db)
+            if obj is not None:
+                objects.append(obj)
 
-            waste_type_id = await self.get_waste_type_id(type_name, db)
-            if waste_type_id is None:
-                continue 
-
-            obj = DetectionObject(
-                waste_type_id=waste_type_id,
-                type_name=type_name,
-                confidence=score,
-                box=BBox(
-                    x1=bbox[0],
-                    y1=bbox[1],
-                    x2=bbox[2],
-                    y2=bbox[3],
-                ),
-            )
-            objects.append(obj)
+        if not objects:
+            await file.read()
+            return None
 
         payload = DetectionCreate(
             trashcan_id=trashcan_id,
@@ -132,7 +159,7 @@ class DetectionService:
         db: SessionDep,
     ) -> None:
         if trashcan_id is not None:
-            if not await self._ensure_trashcan_exists(trashcan_id, db):
+            if not await trashcan_pk_exists(trashcan_id, db):
                 return
         occurred_value = None
         if occurred_at:
@@ -192,18 +219,44 @@ class DetectionService:
         )
         return (await db.execute(stmt)).scalar_one_or_none()
 
-    async def get_trashcan_id(self, trashcan_id_value: int | str | None, db: SessionDep) -> int | None:
-        if trashcan_id_value is None:
-            return None
+    async def lookup_trashcan_for_detection(
+        self,
+        raw_id: int | str | None,
+        db: SessionDep,
+    ) -> tuple[Literal["active", "deleted", "missing"], int | None]:
+        """camera_id(= trashcan PK) 기준: 활성 / 삭제됨 / 없음."""
+        if raw_id is None:
+            return ("missing", None)
         try:
-            trashcan_id = int(trashcan_id_value)
+            tid = int(raw_id)
         except (TypeError, ValueError):
-            return None
-        stmt = select(Trashcan.trashcan_id).where(Trashcan.trashcan_id == trashcan_id)
-        return (await db.execute(stmt)).scalar_one_or_none()
+            return ("missing", None)
+        stmt = select(Trashcan.trashcan_id, Trashcan.is_deleted).where(
+            Trashcan.trashcan_id == tid
+        )
+        row = (await db.execute(stmt)).first()
+        if row is None:
+            return ("missing", None)
+        _pk, is_deleted = row[0], row[1]
+        if is_deleted:
+            return ("deleted", tid)
+        return ("active", tid)
+
+    async def get_trashcan_id(
+        self, trashcan_id_value: int | str | None, db: SessionDep
+    ) -> int | None:
+        """수신 가능한(삭제되지 않은) 쓰레기통 ID만 반환."""
+        status, tid = await self.lookup_trashcan_for_detection(trashcan_id_value, db)
+        if status == "active":
+            return tid
+        return None
 
     async def update_trashcan_online(self, trashcan_id: int, db: SessionDep) -> None:
-        stmt = select(Trashcan).where(Trashcan.trashcan_id == trashcan_id)
+        stmt = (
+            select(Trashcan)
+            .where(Trashcan.trashcan_id == trashcan_id)
+            .where(Trashcan.is_deleted == False)
+        )
         target = (await db.execute(stmt)).scalar_one_or_none()
         if not target:
             return
@@ -250,15 +303,17 @@ class DetectionService:
             db.add(detail)
         await db.commit()
 
-        #trashcan 수거량 업데이트
-        target_trashcan = (
-            await db.execute(
-                select(Trashcan).where(Trashcan.trashcan_id == payload.trashcan_id)
+        # trashcan 수거량: DB에서 원자적으로 증가 (동시 요청 시 read-modify-write lost update 방지)
+        stmt_vol = (
+            update(Trashcan)
+            .where(Trashcan.trashcan_id == payload.trashcan_id)
+            .values(
+                current_volume=func.coalesce(Trashcan.current_volume, 0)
+                + payload.object_count,
             )
-        ).scalar_one_or_none()
-        if target_trashcan:
-            target_trashcan.current_volume = (target_trashcan.current_volume or 0) + payload.object_count
-            await db.commit()
+        )
+        await db.execute(stmt_vol)
+        await db.commit()
 
         #trashcan_city 조회
         trashcan_city = (
@@ -267,21 +322,19 @@ class DetectionService:
             )
         ).scalar_one()
 
-        #daily_stats 저장
-        for obj in payload.objects:
-            daily = select(DailyStats).where(
-                DailyStats.stats_date == date.today(),
-                DailyStats.trashcan_city == trashcan_city,
-                DailyStats.waste_type_id == obj.waste_type_id,
+        # daily_stats: 유니크 키 기준 ON DUPLICATE KEY UPDATE로 원자적 증가
+        today = date.today()
+        for waste_type_id, delta in Counter(
+            obj.waste_type_id for obj in payload.objects
+        ).items():
+            ins = mysql_insert(DailyStats).values(
+                stats_date=today,
+                trashcan_city=trashcan_city,
+                waste_type_id=waste_type_id,
+                detection_count=delta,
             )
-            stats = (await db.execute(daily)).scalar_one_or_none()
-            if stats:
-                stats.detection_count = (stats.detection_count or 0) + 1
-            else:
-                db.add(DailyStats(
-                    stats_date=date.today(),
-                    trashcan_city=trashcan_city,
-                    waste_type_id=obj.waste_type_id,
-                    detection_count=1,
-                ))
+            ins = ins.on_duplicate_key_update(
+                detection_count=func.coalesce(DailyStats.detection_count, 0) + delta,
+            )
+            await db.execute(ins)
         await db.commit()

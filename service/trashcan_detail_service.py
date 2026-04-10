@@ -2,6 +2,7 @@ import os
 from pathlib import Path
 
 from utils.trashcan_status_utils import mark_offline_if_stale
+from utils.service_helpers import image_storage_root
 
 from sqlmodel import select
 from sqlalchemy import func
@@ -11,15 +12,11 @@ from utils.waste_type_config import get_waste_type_names
 
 
 class TrashcanDetail:
-    def _get_image_root_path(self) -> Path:
-        configured_path = os.getenv("IMAGE_PATH", ".")
-        return Path(configured_path.strip().strip("\""))
-
     def _resolve_detection_image_path(self, relative_path: str | None) -> Path | None:
         if not relative_path:
             return None
 
-        image_root = self._get_image_root_path().resolve()
+        image_root = image_storage_root().resolve()
         absolute_path = (image_root / relative_path).resolve()
 
         try:
