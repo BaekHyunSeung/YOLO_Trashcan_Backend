@@ -46,6 +46,14 @@ async def get_unconnected_trashcans(db: SessionDep):
     result = await service.get_unconnected_trashcans_list(db)
     return result
 
+@dashboard.get("/trashcans/error/unregistered")
+async def get_unregistered_trashcan_error_logs(
+    db: SessionDep,
+    limit: int = Query(50, ge=1, le=200),
+):
+    result = await service.get_unregistered_trashcan_error_logs(limit, db)
+    return result
+
 @dashboard.get("/trashcans/error/{trashcan_id}")
 async def get_trashcan_error_logs(
     trashcan_id: int,

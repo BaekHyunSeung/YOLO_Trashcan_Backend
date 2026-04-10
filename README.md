@@ -59,6 +59,8 @@ APP_HOST=0.0.0.0
 APP_PORT=8000
 ALLOWED_ORIGINS=http://localhost:5173
 IMAGE_PATH=
+DETECTION_CONFIDENCE_THRESHOLD=0.25
+DETECTION_MIN_INTERVAL_SECONDS=0
 WASTE_TYPE_1=MetalCan
 WASTE_TYPE_2=PetBottle
 WASTE_TYPE_3=Plastic
@@ -66,11 +68,13 @@ WASTE_TYPE_4=Styrofoam
 CLASS_ID_TO_WASTE_TYPE_ID=0:1,1:2,2:3,3:4
 ```
 
-- `DB_USER`, `DB_PW`, `DB_IP`, `DB_PORT`, `DB_NAME`: DB 접속 정보
+- `DB_USER`, `DB_PW`, `DB_IP`, `DB_PORT`, `DB_NAME`: DB 접속 정보 (**미설정 시 기동 시 예외**)
 - `APP_HOST`: FastAPI 서버 실행 호스트
 - `APP_PORT`: FastAPI 서버 실행 포트
-- `ALLOWED_ORIGINS`: CORS 허용 프론트 주소
+- `ALLOWED_ORIGINS`: CORS 허용 origin (현재 코드는 **값 하나**를 리스트에 넣어 사용; 여러 주소가 필요하면 코드에서 리스트로 분리 필요)
 - `IMAGE_PATH`: 디텍션 업로드 이미지를 저장할 상위 디렉터리 경로
+- `DETECTION_CONFIDENCE_THRESHOLD`: 검출 `score`가 이보다 낮으면 저장 대지 않음 (기본 `0.25`)
+- `DETECTION_MIN_INTERVAL_SECONDS`: 같은 `camera_id`로 최소 이 간격(초)마다만 DB 등록. `0`이면 제한 없음. 간격 미달이면 저장 생략 후에도 `204`
 - `WASTE_TYPE_{id}`: `wastetype` 테이블에 동기화할 쓰레기 타입 이름
 - `CLASS_ID_TO_WASTE_TYPE_ID`: YOLO `class_id`와 `waste_type_id`를 직접 매핑하는 선택 설정
 - `WASTE_TYPE_5=GlassBottle`처럼 새 타입을 추가하면 서버 시작 시 자동 반영됩니다.
@@ -99,8 +103,8 @@ CLASS_ID_TO_WASTE_TYPE_ID=0:1,1:2,2:3,3:4
 - 현재 프로젝트는 로그인/세션 인증을 사용하지 않으므로 `allow_credentials=False`로 설정합니다.
 - 현재 코드는 `ALLOWED_ORIGINS` 한 개 값을 리스트로 감싸서 사용합니다.
 
-## 목데이터
-- 에지 모델이 보내는 `camera_id`와 동일한 `trashcan_id`를 가진 쓰레기통 데이터가 필요합니다.
+## 목데이터 / 연동 준비
+- 에지가 보내는 `camera_id`와 동일한 **`trashcan_id`** 가 DB에 있어야 합니다. 관리 API 생성 시 **`trashcan_id`를 지정**하거나, 자동 증가 ID를 쓴 경우 DB/관리 화면에서 ID를 맞춥니다.
 - 쓰레기 종류 데이터는 `.env`의 `WASTE_TYPE_{id}` 설정을 기준으로 서버 시작 시 `wastetype` 테이블에 자동 동기화됩니다.
 - `.env`에 없는 기존 타입은 삭제하지 않고 비활성화하여, 기존 탐지 이력 참조는 유지됩니다.
 ```
@@ -135,20 +139,28 @@ CLASS_ID_TO_WASTE_TYPE_ID=0:1,1:2,2:3,3:4
 │  ├─ trashcan_list_router.py     # 쓰레기통 목록 API
 │  ├─ trashcan_management_router.py # 쓰레기통 관리 API
 │  └─ trashcan_map_router.py      # 지도 API
-└─ service/
-   ├─ dashboard_service.py        # 대시보드 집계/통계 처리
-   ├─ detections_service.py       # 디텍션 저장/매핑 처리
-   ├─ trashcan_detail_service.py  # 쓰레기통 상세/이력 조회
-   ├─ trashcan_list_service.py    # 목록/검색/정렬 처리
-   ├─ trashcan_management_service.py # 관리(생성/수정/삭제) 처리
-   ├─ trashcan_map_service.py     # 지도용 좌표 조회
+├─ service/
+│  ├─ dashboard_service.py        # 대시보드 집계/통계 처리
+│  ├─ detections_service.py       # 디텍션 저장/매핑 처리
+│  ├─ trashcan_detail_service.py  # 쓰레기통 상세/이력 조회
+│  ├─ trashcan_list_service.py    # 목록/검색/정렬 처리
+│  ├─ trashcan_management_service.py # 관리(생성/수정/삭제) 처리
+│  └─ trashcan_map_service.py     # 지도용 좌표 조회
+└─ utils/
    ├─ connection_utils.py         # ping 연결 체크 유틸
-   └─ trashcan_status_utils.py    # 온라인 상태 갱신 유틸
+   ├─ detection_intake.py         # 디텍션 수신 간격·신뢰도 설정
+   ├─ service_helpers.py          # 공통 헬퍼(용적 표시, 이미지 루트, PK 조회 등)
+   ├─ trashcan_status_utils.py    # 온라인 상태 갱신 유틸
+   └─ waste_type_config.py        # 쓰레기 타입 설정/동기화 유틸
 ```
 
 ## 메타데이터 형식
 
-탐지 결과 업로드(`/detect/result`)의 `metadata`는 JSON 문자열이며, 형식은 아래와 같습니다.
+탐지 결과 업로드(`POST /detect/result`)의 `metadata`는 **유효한 JSON 문자열**이어야 하며, `multipart/form-data`로 `file`과 함께 보냅니다.
+
+- **성공 시 HTTP `204 No Content`** (응답 본문 없음)
+- `camera_id`는 DB의 **`trashcan.trashcan_id`(PK)** 와 동일한 값으로 조회합니다. 미등록·삭제된 쓰레기통이면 `400` 및 에러 로그.
+- 필터 후 **유효한 검출이 0개**이면 디텍션 행/이미지/수거량 갱신 없이 `204`(연결 상태 갱신만 될 수 있음).
 
 ```json
 {
@@ -161,7 +173,7 @@ CLASS_ID_TO_WASTE_TYPE_ID=0:1,1:2,2:3,3:4
 }
 ```
 
-- `camera_id`: 카메라(쓰레기통) 식별자
+- `camera_id`: 쓰레기통 PK와 동일한 식별자
 - `frame_id`: 프레임 식별자(선택)
 - `detections`: 탐지 결과 목록
   - `class_id`: 클래스 ID
@@ -170,6 +182,11 @@ CLASS_ID_TO_WASTE_TYPE_ID=0:1,1:2,2:3,3:4
 - `timestamp`: ISO 8601 형식(선택)
 
 `class_id`는 기본적으로 `waste_type_id - 1` 규칙으로 타입에 매핑됩니다. 다른 순서를 사용하려면 `.env`의 `CLASS_ID_TO_WASTE_TYPE_ID`를 설정하면 됩니다.
+
+### 일별 통계(`dailystats`)
+
+- 구현은 MySQL `INSERT ... ON DUPLICATE KEY UPDATE`를 사용합니다.
+- DB에 `(stats_date, trashcan_city, waste_type_id)` **유니크 인덱스**가 있어야 의도대로 동작합니다. 기존 DB는 마이그레이션으로 인덱스 추가가 필요할 수 있습니다.
 
 ## 이미지 저장 규칙
 
@@ -193,14 +210,16 @@ DB image_path=detect_img/1_296_20260327_141424_123_a1b2c3d4.jpg
 ## 에러 로그
 
 - 저장 트리거: 디텍션 수신(`/detect/result`) 처리 중 에러 발생 시 자동 저장
-- 보조 필드: `trashcan_id`를 찾을 수 없는 경우를 위해 로그에 `camera_id`도 함께 저장
+- 보조 필드: `camera_id`를 함께 저장. 미등록 PK면 `trashcan_id=NULL`, 삭제된 쓰레기통이면 `trashcan_id`가 채워질 수 있음
+- 미등록 `camera_id`만 해당하는 로그는 `trashcan_id=NULL`로 `/dashboard/trashcans/error/unregistered`에서 조회
 - 시간 필드 규칙
   - `occurred_at`: 요청에 값이 있으면 사용, 없거나 파싱 실패면 서버 현재 시간
   - `created_at`: DB에 로그가 저장된 시각
   - `last_occurred_at`: 동일 에러가 반복될 때 마지막 발생 시각
 - 중복 처리: 동일 에러가 1분 이내 반복되면 새 로그 대신 `repeat_count` 증가
-- 조회: `/dashboard/trashcans/error/{trashcan_id}?limit=50` (최신순)
+- 조회: `/dashboard/trashcans/error/{trashcan_id}?limit=50` (최신순). **소프트 삭제된 쓰레기통**도 PK만 존재하면 동일 경로로 조회 가능
 - 조회 제한: 기본 50건, 최대 200건
+- 잘못된 JSON 등으로 `message`가 과도하게 길면 DB 컬럼 제한으로 저장이 실패할 수 있음 → 엣지에서 **유효한 JSON** 유지 권장
 - 관련 문서: `API.md`의 대시보드 로그 섹션 참고
 
 ## 연결 상태 관리
@@ -224,9 +243,12 @@ DB image_path=detect_img/1_296_20260327_141424_123_a1b2c3d4.jpg
 ## 포화도(`fill_rate`) 계산 기준
 
 - 포화도는 `current_volume / trashcan_capacity * 100` 방식으로 계산합니다.
-- `current_volume`은 디텍션 수신 시 감지된 객체 수만큼 누적됩니다.
+- `current_volume`은 디텍션 수신 시 **유효한 검출 개수**만큼 DB에서 원자적으로 증가합니다(동시 요청 시 읽기-수정-쓰기 레이스 완화).
 - 내부 계산값은 100%를 넘을 수 있지만, API 응답으로 내려주는 `fill_rate` 값은 최대 `100.0`으로 제한합니다.
 
 ## 쓰레기통 등록 주의사항
 
-쓰레기통 등록 시 `server_url`로 연결 테스트를 수행합니다. 연결이 실패하면 등록이 중단됩니다.
+- `POST /management/trashcans` 등록 시 `server_url`로 **ping 연결 테스트**를 합니다. 실패하면 `created: false`로 중단됩니다.
+- 요청 본문에 **`trashcan_id`를 선택적으로 지정**할 수 있습니다. 에지 장비의 `camera_id`와 맞추려면 미리 원하는 PK로 등록하면 됩니다. 이미 사용 중인 PK(삭제된 행 포함)면 생성되지 않습니다.
+
+상세 엔드포인트·쿼리는 **`API.md`** 를 참고하세요.

@@ -4,7 +4,7 @@ from sqlalchemy.ext.asyncio import create_async_engine
 from sqlalchemy.orm import sessionmaker
 # 핵심: SQLAlchemy 것이 아니라 SQLModel의 비동기 세션을 가져와야 함
 from sqlmodel.ext.asyncio.session import AsyncSession
-from typing import Annotated, List
+from typing import Annotated
 from fastapi import Depends
 
 load_dotenv()
@@ -21,7 +21,7 @@ for var in missing:
 
 DATABASE_URL = f"mysql+aiomysql://{DB_USER}:{DB_PW}@{DB_IP}:{DB_PORT}/{DB_NAME}"
 
-engine = create_async_engine(DATABASE_URL, echo=True)
+engine = create_async_engine(DATABASE_URL, echo=False)
 
 async def get_db():
     # sessionmaker에 SQLModel의 AsyncSession 클래스를 전달

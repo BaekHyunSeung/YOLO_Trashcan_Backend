@@ -22,6 +22,13 @@
 - 일부 관리 API는 실패 시 HTTP 에러를 던지지 않고, `200 OK`와 함께 `created: false`, `updated: false` 같은 결과 JSON을 반환합니다.
 - 쓰레기통 상세/대시보드 조회 계열은 없는 대상을 조회하면 `404`를 반환하는 경우가 있습니다.
 
+### 디텍션·수신 관련 환경 변수 (`.env`)
+| 변수 | 기본 | 설명 |
+|------|------|------|
+| `DETECTION_CONFIDENCE_THRESHOLD` | `0.25` | 검출 `score`가 이보다 낮으면 저장 대상에서 제외 |
+| `DETECTION_MIN_INTERVAL_SECONDS` | `0` | 같은 `camera_id`로 최소 이 간격(초)마다만 DB 등록. `0`이면 제한 없음. 간격 미달 요청은 본문 무시 후 `204` |
+| `IMAGE_PATH` | `.` | 디텍션 이미지 저장 루트 |
+
 ---
 
 ## 대시보드
@@ -128,6 +135,7 @@
 ### 쓰레기통 에러 로그 조회
 - `GET /dashboard/trashcans/error/{trashcan_id}?limit=50`
 - 디텍션 수신(`/detect/result`) 중 저장된 에러 로그를 조회합니다.
+- **소프트 삭제(`is_deleted=True`)된 쓰레기통**이라도 PK가 DB에 있으면 조회 가능합니다 (삭제된 통에 쌓인 로그 확인용).
 - 같은 에러가 1분 이내 반복되면 새 로그 대신 `repeat_count`가 증가합니다.
 - `limit`: `1~200`, 기본 `50`
 
@@ -151,8 +159,38 @@
 ```
 
 실패 경우:
-- `404`: 존재하지 않거나 삭제된 쓰레기통인 경우
+- `404`: 해당 PK의 `trashcan` 행이 **아예 없는** 경우 (잘못된 `trashcan_id`)
 - `422`: `trashcan_id`가 정수가 아닌 경우
+- `422`: `limit`가 `1~200` 범위를 벗어난 경우
+- `500`: DB 조회 등 서버 내부 오류
+
+### 미등록 camera 에러 로그 조회
+- `GET /dashboard/trashcans/error/unregistered?limit=50`
+- `camera_id`는 들어왔지만 **등록된 쓰레기통 PK가 없는** 경우 등, `trashcan_id`가 로그에 `null`로 남은 행을 조회합니다.
+- (삭제된 쓰레기통에 대한 400 등은 `trashcan_id`가 채워져 있을 수 있어 이 목록과 겹치지 않을 수 있음.)
+- `trashcan_id`는 `null`로 반환됩니다.
+- `limit`: `1~200`, 기본 `50`
+
+성공 응답:
+```json
+{
+  "trashcan_id": null,
+  "logs": [
+    {
+      "trashcan_id": null,
+      "camera_id": 999,
+      "status_code": 400,
+      "message": "등록되지 않은 쓰레기통입니다. camera_id=999",
+      "occurred_at": "2026-04-01T12:00:00",
+      "last_occurred_at": "2026-04-01T12:00:00",
+      "repeat_count": 1,
+      "created_at": "2026-04-01T12:00:00"
+    }
+  ]
+}
+```
+
+실패 경우:
 - `422`: `limit`가 `1~200` 범위를 벗어난 경우
 - `500`: DB 조회 등 서버 내부 오류
 
@@ -422,10 +460,12 @@
 - `POST /management/trashcans`
 - 등록 전 `server_url`로 ping 연결 테스트를 수행합니다.
 - 연결 실패 시 HTTP 에러가 아니라 `created: false` JSON을 반환합니다.
+- **`trashcan_id` (선택)**: 생략 시 DB 자동 증가. 지정 시 해당 PK로 행을 생성합니다. 디텍션의 `camera_id`와 동일한 값으로 맞추려면 장비 ID를 미리 넣어 등록하면 됩니다. 이미 사용 중인 PK(삭제된 행 포함)면 생성되지 않습니다.
 
 요청 본문:
 ```json
 {
+  "trashcan_id": 42,
   "trashcan_name": "A",
   "trashcan_capacity": 100,
   "trashcan_city": "서울",
@@ -433,6 +473,16 @@
   "trashcan_latitude": 37.0,
   "trashcan_longitude": 127.0,
   "server_url": "192.168.0.10"
+}
+```
+
+`trashcan_id`를 쓰지 않을 때는 해당 필드를 빼면 됩니다.
+
+추가 실패 응답 예시:
+```json
+{
+  "created": false,
+  "message": "trashcan_id가 이미 사용 중입니다."
 }
 ```
 
@@ -455,6 +505,7 @@
 
 실패 경우:
 - `200`: ping 실패 또는 연결 테스트 중 예외 발생 시 `created: false`
+- `200`: 지정한 `trashcan_id`가 이미 존재하면 `created: false`, `message`에 사용 중 안내
 - `422`: 요청 본문 누락/타입 오류
 - `500`: DB 저장 오류
 
@@ -607,11 +658,24 @@
 - 요청 형식: `multipart/form-data`
 - 필수 필드:
   - `file`: 이미지 파일
-  - `metadata`: JSON 문자열
-- `camera_id`는 쓰레기통 식별자로 사용됩니다.
+  - `metadata`: **유효한 JSON 문자열** (문법 오류 시 `422`, 쉼표 누락 등 주의)
+
+#### `camera_id`와 쓰레기통
+- `camera_id`는 DB의 **`trashcan.trashcan_id`(PK)** 와 동일한 값으로 조회합니다.
+- 해당 PK의 행이 **없으면** `400`, 메시지: `등록되지 않은 쓰레기통입니다. camera_id=...`
+- 행이 있으나 **`is_deleted=True`(소프트 삭제)** 이면 `400`, 메시지: `삭제된 쓰레기통입니다. trashcan_id=..., camera_id=...`
+- 장비 ID를 미리 맞추려면 관리 API **`POST /management/trashcans`** 에서 선택 필드 **`trashcan_id`** 로 등록합니다.
+
+#### 필터·저장 조건
+- **`DETECTION_CONFIDENCE_THRESHOLD`**: 각 검출의 `score`가 임계값 미만이면 버립니다.
+- **`DETECTION_MIN_INTERVAL_SECONDS`**: 같은 `camera_id`로 너무 자주 보내면 **DB에는 저장하지 않고** `204`만 반환 (에러 아님).
+- 필터 후 **유효한 검출이 0개**이면 디텍션 행·이미지·`current_volume`/일별 통계 갱신 **없음** (`204`). 연결 상태(`is_online`) 갱신만 수행될 수 있습니다.
+- `current_volume` 증가는 DB **`UPDATE ... SET current_volume = COALESCE(current_volume,0) + object_count`** 로 원자적 처리합니다.
+
+#### 클래스 매핑·파일
 - `class_id`는 기본적으로 `waste_type_id - 1` 규칙으로 매핑됩니다.
 - 다른 매핑이 필요하면 `.env`의 `CLASS_ID_TO_WASTE_TYPE_ID`를 사용합니다.
-- 업로드 이미지는 `.env`의 `IMAGE_PATH` 아래 `detect_img/<파일명>`으로 저장됩니다.
+- 업로드 이미지는 `IMAGE_PATH` 아래 `detect_img/<파일명>`으로 저장됩니다.
 - DB의 `image_path`에는 상대 경로 `detect_img/<파일명>`이 저장됩니다.
 - 저장 파일명 형식: `{trashcan_id}_{detection_id}_{YYYYMMDD_HHMMSS_mmm}_{uuid8}{suffix}`
 
@@ -627,16 +691,20 @@
 }
 ```
 
+필드 사이에는 반드시 **쉼표**가 있어야 합니다. (잘못된 JSON은 `422`입니다.)
+
 성공 응답:
-- `204 No Content`
+- `204 No Content` (성공 저장, 간격으로 건너뜀, 검출 0으로 저장 생략 모두 동일하게 `204`일 수 있음)
 
 실패 경우:
-- `400`: `camera_id`에 해당하는 쓰레기통을 찾지 못한 경우
+- `400`: 등록되지 않은 `camera_id`(PK 없음)
+- `400`: 삭제된 쓰레기통(`is_deleted`)
 - `422`: `metadata` JSON 파싱/스키마 검증 실패
 - `422`: `file` 또는 `metadata` multipart 필드 누락
 - `422`: `camera_id`, `class_id`, `bbox`, `score` 타입이 잘못된 경우
 - `500`: 이미지 저장/DB 저장 등 서버 내부 예외
 
 에러 로그 저장:
-- `422`, `400`, `500` 계열 실패가 발생하면 가능한 경우 해당 쓰레기통 기준으로 에러 로그가 저장됩니다.
-- `camera_id`는 로그에 함께 저장될 수 있습니다.
+- `422`, `400`, `500` 계열 실패가 발생하면 가능한 경우 `trashcan_error_log`에 저장됩니다.
+- `camera_id` 및 가능하면 `trashcan_id`가 함께 저장됩니다.
+- **PK가 없는** `camera_id`만 `trashcan_id=null`로 남을 수 있습니다. 삭제된 쓰레기통의 경우 `trashcan_id`가 채워질 수 있습니다.

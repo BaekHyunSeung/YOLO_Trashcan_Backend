@@ -1,9 +1,7 @@
 from datetime import datetime, date
-from typing import Annotated
 
-from fastapi import Depends, FastAPI, HTTPException, Query
-from sqlmodel import Field, Session, SQLModel, create_engine, select
-from sqlalchemy import Boolean, Column, text, DateTime
+from sqlmodel import Field, SQLModel
+from sqlalchemy import Boolean, Column, text, DateTime, UniqueConstraint
 
 class Trashcan(SQLModel, table=True):
     __tablename__ = "trashcan"
@@ -51,6 +49,14 @@ class DetectionDetail(SQLModel, table=True):
 
 class DailyStats(SQLModel, table=True):
     __tablename__ = "dailystats"
+    __table_args__ = (
+        UniqueConstraint(
+            "stats_date",
+            "trashcan_city",
+            "waste_type_id",
+            name="uq_dailystats_date_city_wtype",
+        ),
+    )
     stats_id: int | None = Field(default=None, primary_key=True)
     stats_date: date
     trashcan_city: str | None
@@ -60,7 +66,7 @@ class DailyStats(SQLModel, table=True):
 class TrashcanErrorLog(SQLModel, table=True):
     __tablename__ = "trashcan_error_log"
     id: int | None = Field(default=None, primary_key=True)
-    trashcan_id: int = Field(foreign_key="trashcan.trashcan_id")
+    trashcan_id: int | None = Field(default=None, foreign_key="trashcan.trashcan_id")
     camera_id: int | None
     status_code: int
     message: str | None

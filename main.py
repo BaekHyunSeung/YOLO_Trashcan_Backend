@@ -12,7 +12,9 @@ from routers.trashcan_detail_router import trashcans_detail
 from routers.trashcan_management_router import management
 from routers.trashcan_map_router import map
 from routers.detections_router import detections
-from utils.waste_type_config import ensure_waste_type_schema, sync_waste_types
+from utils.waste_type_config import (
+    sync_waste_types,
+)
 
 load_dotenv()
 
@@ -26,7 +28,6 @@ app = FastAPI()
 async def on_startup():
     async with engine.begin() as conn:
         await conn.run_sync(SQLModel.metadata.create_all)
-#    await ensure_waste_type_schema(engine) 쓰레기타입 is_active 컬럼 추가
     await sync_waste_types(engine) # 쓰레기타입 is_active 컬럼 추가
 
 app.add_middleware(

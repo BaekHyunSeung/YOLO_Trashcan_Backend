@@ -1,4 +1,4 @@
-from pydantic import BaseModel
+from pydantic import BaseModel, Field
 
 #---------------------------------
 ## 메타데이터 검증(JSON 검증)
@@ -41,6 +41,8 @@ class DetectionCreate(BaseModel):
 ## 쓰레기통 관리 요청
 # 쓰레기통 생성 요청
 class TrashcanCreate(BaseModel):
+    """trashcan_id 생략 시 DB 자동 증가. 지정 시 카메라 ID와 동일한 PK로 등록 가능(미사용 ID만)."""
+    trashcan_id: int | None = Field(default=None, ge=1)
     trashcan_name: str
     trashcan_capacity: int
     trashcan_city: str

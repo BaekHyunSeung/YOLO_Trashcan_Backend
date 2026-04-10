@@ -7,11 +7,9 @@ from db.db import SessionDep
 from models.request import TrashcanModify
 from models.request import TrashcanCreate
 from utils.connection_utils import ping_server
+from utils.service_helpers import trashcan_pk_exists
 
 class TrashcanManagementService:
-    def __init__(self):
-        pass
-
     async def get_trashcans(self, db: SessionDep):
         stmt = (
             select(
@@ -83,7 +81,14 @@ class TrashcanManagementService:
                 "message": "Failed to connect to server",
             }
 
-        new_trashcan = Trashcan(
+        if trashcan.trashcan_id is not None:
+            if await trashcan_pk_exists(trashcan.trashcan_id, db):
+                return {
+                    "created": False,
+                    "message": "trashcan_id가 이미 사용 중입니다.",
+                }
+
+        kwargs = dict(
             trashcan_name=trashcan.trashcan_name,
             trashcan_capacity=trashcan.trashcan_capacity,
             trashcan_city=trashcan.trashcan_city,
@@ -92,6 +97,9 @@ class TrashcanManagementService:
             trashcan_longitude=trashcan.trashcan_longitude,
             server_url=trashcan.server_url,
         )
+        if trashcan.trashcan_id is not None:
+            kwargs["trashcan_id"] = trashcan.trashcan_id
+        new_trashcan = Trashcan(**kwargs)
         db.add(new_trashcan)
         await db.commit()
         await db.refresh(new_trashcan)

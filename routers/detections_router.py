@@ -26,7 +26,9 @@ async def receive_detection(
             camera_id = None
         trashcan_id = None
         if camera_id is not None:
-            trashcan_id = await service.get_trashcan_id(camera_id, db)
+            st, rid = await service.lookup_trashcan_for_detection(camera_id, db)
+            if st in ("active", "deleted"):
+                trashcan_id = rid
         error_messages = []
         for err in exc.errors():
             loc = err.get("loc", [])
@@ -46,9 +48,43 @@ async def receive_detection(
         raise HTTPException(status_code=422, detail=exc.errors())
     payload = parsed.model_dump()
     camera_id = payload.get("camera_id")
-    trashcan_id = await service.get_trashcan_id(camera_id, db)
+    status, resolved_tid = await service.lookup_trashcan_for_detection(camera_id, db)
+    if status == "missing":
+        exc = HTTPException(
+            status_code=400,
+            detail=f"등록되지 않은 쓰레기통입니다. camera_id={camera_id}",
+        )
+        await service.save_trashcan_error_log(
+            None,
+            camera_id,
+            400,
+            str(exc.detail),
+            payload.get("timestamp"),
+            db,
+        )
+        await file.read()
+        raise exc
+    if status == "deleted":
+        exc = HTTPException(
+            status_code=400,
+            detail=f"삭제된 쓰레기통입니다. trashcan_id={resolved_tid}, camera_id={camera_id}",
+        )
+        await service.save_trashcan_error_log(
+            resolved_tid,
+            camera_id,
+            400,
+            str(exc.detail),
+            payload.get("timestamp"),
+            db,
+        )
+        await file.read()
+        raise exc
+    trashcan_id = resolved_tid
+    if await service.should_skip_intake_interval(trashcan_id, camera_id):
+        await file.read()
+        return None
     try:
-        await service.detection_mapping(payload, file, db, trashcan_id=trashcan_id) 
+        await service.detection_mapping(payload, file, db, trashcan_id=trashcan_id)
     except HTTPException as exc:
         await service.save_trashcan_error_log(
             trashcan_id,
